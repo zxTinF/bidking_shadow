@@ -1,0 +1,15 @@
+[project]
+name = "getlog"
+version = "0.1.0"
+description = "BidKing 游戏日志逐回合解析工具"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+parse-log = "parse_log:main"
+
+[dependency-groups]
+dev = [
+    "pyinstaller>=6.20.0",
+]

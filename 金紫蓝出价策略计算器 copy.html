@@ -1,0 +1,1452 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>地图爆率组合估价器</title>
+  <style>
+    :root { --bg:#0f1419; --card:#1a2332; --border:#2d3a4d; --text:#e8edf4; --muted:#8b9cb3; --accent:#c9a227; --ok:#6ab88a; --warn:#d4a054; --bad:#e07070; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; background:var(--bg); color:var(--text); font-family:"Segoe UI","Microsoft YaHei",sans-serif; line-height:1.55; }
+    .wrap { max-width:1500px; margin:0 auto; padding:.7rem .9rem 1rem; }
+    h1 { margin:0 0 .35rem; font-size:1.25rem; }
+    .sub { margin:0 0 .6rem; color:var(--muted); font-size:.8rem; }
+    .layout { display:grid; grid-template-columns:minmax(0,1.25fr) minmax(0,.9fr); gap:.7rem .85rem; align-items:start; }
+    @media (max-width: 1200px) { .layout { grid-template-columns:1fr; } }
+    .left-col { display:grid; grid-template-columns: 1fr 1.05fr; gap:.7rem; align-items:start; }
+    .map-card { grid-column: 1; grid-row: 1; }
+    .constraints-card { grid-column: 2; grid-row: 1 / span 2; }
+    .calc-card { grid-column: 1; grid-row: 2; align-self: start; }
+    @media (max-width: 1200px) {
+      .left-col { grid-template-columns:1fr; }
+      .map-card, .constraints-card, .calc-card { grid-column: 1; grid-row: auto; }
+    }
+    .card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:.72rem .82rem; margin-bottom:.7rem; }
+    .card h2 { margin:0 0 .5rem; font-size:.68rem; text-transform:uppercase; letter-spacing:.08em; color:var(--accent); font-weight:600; }
+    .row { display:grid; grid-template-columns:1fr 1fr; gap:.45rem .6rem; margin-bottom:.45rem; }
+    .row.single { grid-template-columns:1fr; }
+    label { display:block; font-size:.75rem; color:var(--muted); margin-bottom:.18rem; }
+    input, select { width:100%; padding:.35rem .45rem; border-radius:6px; border:1px solid var(--border); background:#121a24; color:var(--text); font-size:.88rem; }
+    .hint { color:var(--muted); font-size:.68rem; margin:.2rem 0 0; }
+    .num { font-variant-numeric: tabular-nums; font-family: ui-monospace,Consolas,monospace; }
+    .err { color:var(--bad); font-size:.8rem; margin-top:.3rem; white-space:pre-line; }
+    .block { background:#121a24; border-radius:8px; padding:.45rem .6rem; margin:.35rem 0; border-left:3px solid var(--accent); font-size:.84rem; }
+    .block.ok { border-left-color:var(--ok); } .block.warn { border-left-color:var(--warn); } .block.bad { border-left-color:var(--bad); }
+    table.mini { width:100%; border-collapse:collapse; font-size:.75rem; margin:.35rem 0; }
+    table.mini th, table.mini td { border:1px solid var(--border); padding:.24rem .35rem; text-align:right; }
+    table.mini th:first-child, table.mini td:first-child { text-align:left; }
+    .result-col { position: sticky; top: .4rem; }
+    .compact-list { margin: 0; padding-left: 1rem; color: var(--muted); font-size: .7rem; line-height: 1.45; }
+    .compact-list li { margin: .1rem 0; }
+    .mini-calc-wrap { width: 320px; max-width: 100%; margin-left: auto; margin-right: auto; }
+    .calc-display { width:100%; min-height:1.9rem; border:1px solid var(--border); border-radius:6px; background:#0b111a; color:var(--text); text-align:right; padding:.24rem .42rem; margin-bottom:.35rem; font-size:.88rem; font-family:ui-monospace,Consolas,monospace; }
+    .calc-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:.24rem; }
+    .calc-btn { border:1px solid var(--border); border-radius:6px; background:#243044; color:var(--text); padding:.24rem 0; font-size:.72rem; cursor:pointer; }
+    .calc-btn:hover { filter:brightness(1.06); }
+    .calc-btn.op { color:var(--accent); background:#1e2a3a; }
+    .calc-btn.eq { background:linear-gradient(165deg,#b8922a,#7a5f18); color:#111; border-color:#6a5518; }
+    .calc-btn.wide { grid-column: span 2; }
+    .mini-calc-note { text-align:center; }
+    .int-calc { margin-top:.45rem; padding-top:.4rem; border-top:1px dashed var(--border); }
+    .int-calc .row { grid-template-columns: 1fr auto; gap:.3rem; }
+    .int-calc button { min-width:72px; }
+    .int-calc-out { font-size:.74rem; margin-top:.28rem; line-height:1.4; }
+    .ghost-btn {
+      border:1px solid var(--border);
+      border-radius:999px;
+      background:#121a24;
+      color:var(--muted);
+      font-size:.72rem;
+      padding:.2rem .55rem;
+      cursor:pointer;
+    }
+    .ghost-btn:hover { color:var(--text); border-color:var(--accent); }
+    .calc-toggle summary {
+      list-style: none;
+      cursor: pointer;
+      user-select: none;
+      display: inline-flex;
+      align-items: center;
+      gap: .35rem;
+      padding: .2rem .5rem;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: #121a24;
+      color: var(--muted);
+      font-size: .72rem;
+      margin-bottom: .35rem;
+    }
+    .calc-toggle summary::-webkit-details-marker { display: none; }
+    .calc-toggle summary::before { content: "▶"; font-size: .65rem; color: var(--accent); }
+    .calc-toggle[open] summary::before { content: "▼"; }
+    .calc-toggle[open] .mini-calc-wrap,
+    .calc-toggle[open] .mini-calc-note { animation: fadeIn .15s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: translateY(0); } }
+    footer { margin-top:.55rem; color:var(--muted); font-size:.66rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>地图爆率 + 占格组合估价器</h1>
+    <p class="sub">均格按“每件平均占格”处理（不是价格）。算法结合地图、区域爆率、件数/总格/均格约束枚举组合，用概率与物拟合给 P50/出价区间。总件数可空：有<strong>总格数</strong>时会用爆率与轮廓均格反推；有<strong>全藏品均格</strong>时优先用其反推件数。</p>
+    <div class="layout">
+      <div class="left-col">
+        <div class="card map-card">
+          <h2>地图与全局</h2>
+          <div class="row">
+            <div><label for="tier">区域档</label><select id="tier"><option value="101">101 快递</option><option value="102">102 仓库</option><option value="103">103 集装箱</option><option value="104">104 别墅</option><option value="105">105 沉船</option></select></div>
+            <div><label for="mapPick">详细地图（BidMap）</label><select id="mapPick"></select></div>
+          </div>
+          <div class="row">
+            <div><label for="totalCount">总件数（选填）</label><input id="totalCount" type="number" min="1" step="1" placeholder="留空：有总格则反推；全无则 30" /></div>
+            <div></div>
+          </div>
+          <div class="row">
+            <div><label for="safety">安全系数</label><input id="safety" type="number" min="0.5" max="1.05" step="0.01" value="0.90" /></div>
+            <div><label for="maxShow">展示组合数</label><input id="maxShow" type="number" min="10" max="300" step="1" value="10" /></div>
+          </div>
+          <div class="row single">
+            <div>
+              <label for="mergedCsvFile">合并数据（calculator_data_merged.csv，可选上传）</label>
+              <input id="mergedCsvFile" type="file" accept=".csv,text/csv" />
+              <p class="hint" id="mergedDataStatus">合并数据：尝试自动读取同目录 `calculator_data_merged.csv`。</p>
+              <p class="hint" id="itemDataStatus">物品级组成：未加载。</p>
+              <p class="hint" id="dropDataStatus">物品权重：未加载。</p>
+            </div>
+          </div>
+          <p class="hint">总件数若填写则以你为准。留空且填写总格数时：若同时填了全藏品均格则用总格÷该均格反推；若只填总格，则用当前区域档爆率与各品质模型均格（上传数据后含轮廓+地图权重）合成「期望每件占格」再反推。总件数与总格都未提供时默认 30 件。高品质总数 = 总件数 - 绿白总数。红件数上界随高品质总数自然封顶。</p>
+        </div>
+        <div class="card constraints-card">
+          <h2>蓝 / 紫 / 金 / 红约束（均可选填）</h2>
+          <div style="display:flex;justify-content:flex-end;margin:-.15rem 0 .35rem;">
+            <button type="button" class="ghost-btn" id="clearConstraintsBtn">清空详细约束</button>
+          </div>
+          <div class="row"><div><label for="totalGridAll">总格数（选填）</label><input id="totalGridAll" type="number" min="0" step="1" placeholder="例如 120" /></div><div><label for="avgGridAll">全藏品均格（选填）</label><input id="avgGridAll" type="number" min="0" step="0.01" placeholder="例如 4.2" /></div></div>
+          <div class="row"><div><label for="gwCount">绿白总数（选填）</label><input id="gwCount" type="number" min="0" step="1" placeholder="留空按爆率自动推断" /></div><div><label for="gwGrid">绿白总格数（选填）</label><input id="gwGrid" type="number" min="0" step="1" placeholder="填后可收窄绿白数量推断范围" /></div></div>
+          <div class="row single"><div><label for="avgGw">绿白均格（选填）</label><input id="avgGw" type="number" min="0" step="0.01" placeholder="每件平均占格，留空用模型估计" /></div></div>
+          <div class="row"><div><label for="countBlue">蓝件数</label><input id="countBlue" type="number" min="0" step="1" /></div><div><label for="gridBlue">蓝总格</label><input id="gridBlue" type="number" min="0" step="1" /></div></div>
+          <div class="row single"><div><label for="avgBlue">蓝均格</label><input id="avgBlue" type="number" min="0" step="0.01" /></div></div>
+          <div class="row"><div><label for="countPurple">紫件数</label><input id="countPurple" type="number" min="0" step="1" /></div><div><label for="gridPurple">紫总格</label><input id="gridPurple" type="number" min="0" step="1" /></div></div>
+          <div class="row single"><div><label for="avgPurple">紫均格</label><input id="avgPurple" type="number" min="0" step="0.01" /></div></div>
+          <div class="row"><div><label for="countGold">金件数</label><input id="countGold" type="number" min="0" step="1" /></div><div><label for="gridGold">金总格</label><input id="gridGold" type="number" min="0" step="1" /></div></div>
+          <div class="row single"><div><label for="avgGold">金均格</label><input id="avgGold" type="number" min="0" step="0.01" /></div></div>
+          <div class="row"><div><label for="countRed">红件数</label><input id="countRed" type="number" min="0" step="1" /></div><div><label for="gridRed">红总格</label><input id="gridRed" type="number" min="0" step="1" /></div></div>
+          <div class="row single"><div><label for="avgRed">红均格</label><input id="avgRed" type="number" min="0" step="0.01" /></div></div>
+          <p class="hint">规则：每色 n 件时，格数范围 n~18n；均格按两位小数四舍五入匹配（兼容循环小数近似输入）。绿白均格可与绿白总格/爆率推断联用，收窄绿白件数并估算绿白总格。</p>
+        </div>
+        <div class="card calc-card">
+          <h2>快捷计算器（可选）</h2>
+          <details class="calc-toggle">
+            <summary>显示 / 隐藏四则计算器</summary>
+            <div class="mini-calc-wrap">
+              <div id="calcDisplay" class="calc-display">0</div>
+              <div class="calc-grid" id="calcKeys">
+                <button type="button" class="calc-btn" data-act="clear">C</button>
+                <button type="button" class="calc-btn" data-act="ce">CE</button>
+                <button type="button" class="calc-btn op" data-act="op" data-val="/">÷</button>
+                <button type="button" class="calc-btn op" data-act="op" data-val="*">×</button>
+                <button type="button" class="calc-btn" data-act="digit" data-val="7">7</button>
+                <button type="button" class="calc-btn" data-act="digit" data-val="8">8</button>
+                <button type="button" class="calc-btn" data-act="digit" data-val="9">9</button>
+                <button type="button" class="calc-btn op" data-act="op" data-val="-">−</button>
+                <button type="button" class="calc-btn" data-act="digit" data-val="4">4</button>
+                <button type="button" class="calc-btn" data-act="digit" data-val="5">5</button>
+                <button type="button" class="calc-btn" data-act="digit" data-val="6">6</button>
+                <button type="button" class="calc-btn op" data-act="op" data-val="+">+</button>
+                <button type="button" class="calc-btn" data-act="digit" data-val="1">1</button>
+                <button type="button" class="calc-btn" data-act="digit" data-val="2">2</button>
+                <button type="button" class="calc-btn" data-act="digit" data-val="3">3</button>
+                <button type="button" class="calc-btn op" data-act="sqrt">√</button>
+                <button type="button" class="calc-btn wide" data-act="digit" data-val="0">0</button>
+                <button type="button" class="calc-btn" data-act="dot">.</button>
+                <button type="button" class="calc-btn eq" data-act="eq">=</button>
+              </div>
+            </div>
+            <p class="hint mini-calc-note">独立计算器，不参与上方估价参数。</p>
+          </details>
+          <div class="int-calc">
+            <div class="row">
+              <div>
+                <label for="intCalcInput">整数计算器（输入小数）</label>
+                <input id="intCalcInput" type="text" placeholder="例如 2.33" />
+              </div>
+              <div style="align-self:end;"><button type="button" class="ghost-btn" id="intCalcRun">计算</button></div>
+            </div>
+            <div id="intCalcOut" class="hint int-calc-out">示例：2.33 可能由 7/3 四舍五入得到，所以 ×3≈7；也可用精确小数倍率 ×100=233。</div>
+          </div>
+        </div>
+      </div>
+      <div class="result-col">
+        <div class="card">
+          <h2>结果</h2>
+          <p id="error" class="err" style="display:none;"></p>
+          <div id="content"><p class="hint" style="margin:0;">填写约束后自动计算：总件数可空；有总格数即会反推件数（可再配合全藏品均格）。</p></div>
+        </div>
+        <div class="card">
+          <h2>字段精度作用说明</h2>
+          <ul class="compact-list">
+            <li><strong>区域档 + 地图</strong>：决定爆率权重与品质价格，属于核心精度输入。</li>
+            <li><strong>总件数 / 绿白总数</strong>：件数未填时，有总格即可反推（手填均格或爆率+轮廓合成均格）。</li>
+            <li><strong>总格数 / 全藏品均格</strong>：全局强约束，显著影响概率权重与表格排序；与件数联立时优先服从你填的件数。</li>
+            <li><strong>蓝/紫/金/红件数</strong>：强约束，填了会显著缩小组合空间。</li>
+            <li><strong>蓝/紫/金/红总格</strong>：强约束，和件数/均格联动，精度提升很明显。</li>
+            <li><strong>蓝/紫/金/红均格</strong>：中强约束，提供结构信息，能进一步排除不合理组合。</li>
+            <li><strong>安全系数</strong>：只影响出价偏保守程度，不影响组合真实性。</li>
+            <li><strong>展示组合数</strong>：仅影响展示条数，不影响计算结果。</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <footer>主结果：表驱动 + 物拟合（按占格/约束）；估值价格与区域档爆率、地图嵌套池一致。</footer>
+  </div>
+  <script>
+  (function () {
+    var DROP_W = {"101":[300,320,300,80,20,2],"102":[200,300,330,150,40,8],"103":[130,250,300,400,100,35],"104":[80,180,340,240,100,50],"105":[80,200,240,240,120,70]};
+    var MAPS_BY_TIER = {"101":[["2101","未知快递","2001"],["2102","医院快递","2002"],["2103","超市快递","2003"],["2104","学区快递","2004"],["2105","小区快递","2005"],["2106","玩具店快递","2006"],["2107","古董街快递","2007"]],"102":[["2201","未知仓库","2011"],["2202","潮牌仓库","2012"],["2203","硬核资产仓库","2013"],["2204","民生储备仓库","2014"],["2205","书店仓库","2015"]],"103":[["2301","杂货集装箱","2021"],["2302","家居集装箱","2022"],["2303","数码科技集装箱","2023"],["2304","冷链集装箱","2024"],["2305","古董工艺集装箱","2025"],["2306","文博集装箱","2026"],["2307","奢华集装箱","2027"],["2308","医疗用品集装箱","2028"],["2309","军用物资集装箱","2029"],["2310","潮牌集装箱","2030"]],"104":[["2401","未知别墅","2031"],["2402","设计师居所","2032"],["2403","科学家居所","2033"],["2404","养生学家居所","2034"],["2405","望族居所","2035"],["2406","学者居所","2036"],["2407","私人金库","2037"],["2408","奢华养老院","2038"],["2409","末日庇护所","2039"],["2410","极客改造屋","2040"]],"105":[["2501","未知残骸","2041"],["2502","远洋客轮舱房","2042"],["2503","军用舰艇保险库","2043"],["2504","冷链货船隔离舱","2044"],["2505","殖民商船宝库","2045"],["2506","探险家座舰资料库","2046"],["2507","皇家御用货舱","2047"],["2508","生物实验室样本库","2048"],["2509","私掠船军火舱","2049"],["2510","现代货轮娱乐库","2050"]]};
+    var NEST_WEIGHTED = {"2001":[202.77,606.38,2269.11,6931.11,32629.77,54457.78],"2002":[205.58,574.95,2180.06,6407.65,34103.83,58186.35],"2003":[202.07,595.8,2132.58,6153.63,29183.58,64633.18],"2004":[200.29,673.43,2288.88,7034.02,33556.06,49615.17],"2005":[202.87,623.31,2213.46,6398.43,30602.91,61794.09],"2006":[196.08,620.64,2142.2,6937.85,32350.72,51177.59],"2007":[203.08,572.98,2382.9,7586.58,33342.84,52318.38],"2011":[202.77,606.38,2269.11,6931.11,32629.77,107696.37],"2012":[198.56,606.8,2153.54,6287.34,29135.19,107243.35],"2013":[203.91,709.39,2422.66,7355.16,35185.28,99091.68],"2014":[203.51,566.28,2403.87,7633.17,33481.9,119288.45],"2015":[203.51,566.28,2403.87,7633.17,33481.9,119288.45],"2021":[202.77,606.38,2269.11,6931.11,32629.77,158161.8],"2022":[200.27,620.83,2192.4,6313.3,29534.14,150664.81],"2023":[204.9,704.39,2424.38,7124.51,34142.64,175751.8],"2024":[204.61,559.3,2090.98,6223.28,31798.85,150379.62],"2025":[203.83,582.54,2390.85,7422.84,32944,158495.01],"2026":[202.54,691.4,2539.73,7331.18,34273.54,174168.73],"2027":[210.62,510.62,2255.4,7676.39,30055.13,140960.77],"2028":[202.54,565.31,2157.6,6563.65,34456.05,150571.27],"2029":[202.47,601.67,2313.34,7231.37,33744.78,170345.55],"2030":[196.73,630.21,2067.37,6609.99,32177.24,152191.89],"2031":[202.77,606.38,2269.11,6931.11,32629.77,200773.71],"2032":[200.86,622.19,2207.84,6380.28,29923.49,207679.71],"2033":[203.11,668.21,2323.78,6999.16,33355.92,213846.3],"2034":[204.43,569.87,2120.65,6301.36,31865.42,192722.15],"2035":[203.79,593.76,2364.01,7245.88,32655.48,200733.01],"2036":[203.48,672.7,2438.17,7051.61,33021.87,214683.41],"2037":[208.47,561.1,2262.66,7264.7,30417.91,191219.97],"2038":[203.48,594.86,2202.29,6577.82,33134.53,195400.47],"2039":[203.44,616.64,2299.74,7011.87,32757.37,215847.3],"2040":[199.89,634.92,2146.59,6606.43,31727.85,193119.37],"2041":[202.77,606.38,2269.11,6931.11,32629.77,200773.71],"2042":[200.86,622.19,2207.84,6380.28,29923.49,207679.71],"2043":[203.11,668.21,2323.78,6999.16,33355.92,213846.3],"2044":[204.43,569.87,2120.65,6301.36,31865.42,192722.15],"2045":[203.79,593.76,2364.01,7245.88,32655.48,200733.01],"2046":[203.48,672.7,2438.17,7051.61,33021.87,214683.41],"2047":[208.47,561.1,2262.66,7264.7,30417.91,191219.97],"2048":[203.48,594.86,2202.29,6577.82,33134.53,195400.47],"2049":[203.44,616.64,2299.74,7011.87,32757.37,215847.3],"2050":[199.89,634.92,2146.59,6606.43,31727.85,193119.37]};
+    var lastMapByTier = {"101":"2101","102":"2201","103":"2301","104":"2401","105":"2501"};
+    var ITEM_DB = { byQ: { "3": [], "4": [], "5": [], "6": [] }, byId: {}, loaded: false };
+    var DROP_ITEM_WEIGHTS = { graph: {}, resolvedCache: {}, loaded: false };
+    var QUALITY_P50_DEFAULT = { "3": 2500, "4": 9045.5, "5": 40000, "6": 160000 };
+    var QUALITY_STATS_CACHE = {};      // key: dropId|q  -> { mean, variance, p50, count }
+    var CHOOSE_POOL_CACHE = {};        // key: dropId|q|ut|g|n -> pool
+    var MAP_QUALITY_PROB_CACHE = {};   // key: dropId|tier -> { pLow,pHigh,pB,pP,pG,pR,source }
+    var _recalcDebounceTimer = null;
+    function scheduleRecalc(immediate){
+      if (_recalcDebounceTimer != null) { clearTimeout(_recalcDebounceTimer); _recalcDebounceTimer = null; }
+      // 只有布尔 true 才视作"立即"；事件对象等其他 truthy 值一律走去抖
+      if (immediate === true){ recalc(); return; }
+      _recalcDebounceTimer = setTimeout(function(){
+        _recalcDebounceTimer = null;
+        recalc();
+      }, 260);
+    }
+    function $id(x){ return document.getElementById(x); }
+    function f(n){ if(n===null||n===undefined||isNaN(n))return "—"; return Math.abs(n)>=10000?Math.round(n).toLocaleString("zh-CN"):String(Math.round(n*100)/100); }
+    function pi(id){ var s=$id(id).value.trim(); if(!s) return null; var n=parseInt(s,10); return isNaN(n)?NaN:n; }
+    function pf(id){ var s=$id(id).value.trim(); if(!s) return null; var n=parseFloat(s); return isNaN(n)?NaN:n; }
+    function avgKey(v){ if(v===null) return null; if(isNaN(v)||v<0) return NaN; return Math.round(v*100); }
+    function avgMatch(grid,count,key){
+      if(key===null) return true;
+      if(count===0) return key===0&&grid===0;
+      var x=(grid*100)/count;
+      // 兼容两类输入：四舍五入值 与 手工截断值（如 2.1666 输入 2.16）
+      return Math.round(x)===key || Math.floor(x+1e-9)===key;
+    }
+    function gwAvgFeasibleForCount(n, gKey, gGrid){
+      if(gKey===null||isNaN(gKey)) return true;
+      if(n===0) return gKey===0;
+      if(gGrid!==null&&isFinite(gGrid)) return avgMatch(gGrid, n, gKey);
+      var ggx;
+      for(ggx=n; ggx<=18*n; ggx++){ if(avgMatch(ggx,n,gKey)) return true; }
+      return false;
+    }
+    function fillMapPick(tier){ var sel=$id("mapPick"), list=MAPS_BY_TIER[tier]||[], want=lastMapByTier[tier], i; sel.innerHTML=""; for(i=0;i<list.length;i++){ var o=document.createElement("option"); o.value=list[i][0]; o.textContent=list[i][0]+" "+list[i][1]+" → "+list[i][2]; o.setAttribute("data-name",list[i][1]); o.setAttribute("data-nest",list[i][2]); sel.appendChild(o);} for(i=0;i<sel.options.length;i++){ if(sel.options[i].value===want){ sel.selectedIndex=i; break; } } if(sel.options.length&&sel.selectedIndex<0) sel.selectedIndex=0; if(sel.options.length) lastMapByTier[tier]=sel.value; scheduleRecalc(true); }
+    function mapInfo(){ var s=$id("mapPick"), o=s.options[s.selectedIndex]; if(!o) return null; return {bid:o.value,name:o.getAttribute("data-name")||"",nest:o.getAttribute("data-nest")||""}; }
+    function inferCountsFromGrid(gridTarget, avgRef, maxCount){
+      if(!(gridTarget>=0) || !(avgRef>0)) return [];
+      var ratio=gridTarget/avgRef;
+      var raw=[Math.floor(ratio), Math.ceil(ratio), Math.round(ratio)], seen={}, z, out=[], tv, tol=Math.max(1, gridTarget*0.12, Math.abs(ratio)*0.1);
+      for(z=0;z<raw.length;z++){
+        tv=Math.max(0, Math.min(maxCount, raw[z]));
+        if(!seen[tv]){ seen[tv]=1; out.push(tv); }
+      }
+      out.sort(function(a,b){ return a-b; });
+      out=out.filter(function(t){ return Math.abs(avgRef*t-gridTarget)<=tol; });
+      if(!out.length){
+        tv=Math.max(0, Math.min(maxCount, Math.round(ratio)));
+        out=[tv];
+      }
+      return out;
+    }
+    /**
+     * 轻量 Grid 选项包装：constraintFitScore 只用 .length；
+     * 原来每个 cnt 要展开 cnt~18cnt 的所有 gg 存进数组，O(N^2·18)；
+     * 优化后按是否填 g/a 走 3 条快路径，无 g 无 a 时直接给 span=18cnt-cnt+1。
+     */
+    function buildGridOptions(length, sample, gMin, gMax){
+      return { length: length|0, sample: sample, gMin: gMin, gMax: gMax };
+    }
+    function solveColor(key, highTotal, cId, gId, aId, maxCount, modelAvg){
+      var n=pi(cId), g=pi(gId), aFloat=pf(aId), a=avgKey(aFloat);
+      var warns=[], out=new Map();
+      if(isNaN(n)||isNaN(g)||isNaN(a)) warns.push(key+" 输入格式不合法");
+      if(warns.length) return {map:out, warns:warns, avgInput:aFloat, gridInput:g, countInput:n};
+      if(n!==null&&n<0) warns.push(key+" 件数需>=0");
+      if(g!==null&&g<0) warns.push(key+" 总格需>=0");
+      var nMin=n===null?0:n, nMax=n===null?maxCount:n;
+      var nCandidates=null;
+      if(n===null && g!==null){
+        var avgForInfer = (aFloat!==null && isFinite(aFloat) && aFloat>0) ? aFloat : modelAvg;
+        nCandidates = inferCountsFromGrid(g, avgForInfer, maxCount);
+        if(!nCandidates.length) warns.push(key+" 总格无法反推出可行件数");
+      }
+      for(var cnt=nMin;cnt<=nMax;cnt++){
+        if(nCandidates && nCandidates.indexOf(cnt)<0) continue;
+        // 无 g 无 a：span 直接闭式计算
+        if(g===null && a===null){
+          var span = cnt===0 ? 1 : (18*cnt - cnt + 1);
+          out.set(cnt, buildGridOptions(span, cnt===0?0:Math.round(cnt*modelAvg), cnt===0?0:cnt, cnt===0?0:18*cnt));
+          continue;
+        }
+        // 有 g：唯一候选 gg=g
+        if(g!==null){
+          if(cnt===0){ if(g===0 && (a===null || a===0)) out.set(cnt, buildGridOptions(1, 0, 0, 0)); continue; }
+          if(g<cnt || g>18*cnt) continue;
+          if(!avgMatch(g, cnt, a)) continue;
+          out.set(cnt, buildGridOptions(1, g, g, g));
+          continue;
+        }
+        // a!==null, g===null：扫 cnt~18cnt 只为计数（不存数组）
+        if(cnt===0){ if(a===0) out.set(cnt, buildGridOptions(1, 0, 0, 0)); continue; }
+        var count=0, first=-1, last=-1, gg;
+        for(gg=cnt; gg<=18*cnt; gg++){
+          if(!avgMatch(gg, cnt, a)) continue;
+          if(first<0) first=gg;
+          last=gg;
+          count++;
+        }
+        if(count>0) out.set(cnt, buildGridOptions(count, first, first, last));
+      }
+      if(out.size===0) warns.push(key+" 无可行解");
+      return {map:out, warns:warns, avgInput:aFloat, gridInput:g, countInput:n};
+    }
+    function uniq(a){ var s={},r=[],i; for(i=0;i<a.length;i++){ if(!s[a[i]]){ s[a[i]]=1; r.push(a[i]); } } return r.sort(function(x,y){return x-y;}); }
+    function weightedQuantile(items, q){ if(!items.length) return 0; var arr=items.slice().sort(function(a,b){ return a.val-b.val; }); var total=0,i; for(i=0;i<arr.length;i++) total+=arr[i].w; var t=total*q,acc=0; for(i=0;i<arr.length;i++){ acc+=arr[i].w; if(acc>=t) return arr[i].val; } return arr[arr.length-1].val; }
+    /** 统一的按品质统计：价格均值/方差（用于 Σk 件时的 mean/var）+ P50（作为锚）。 */
+    function getQualityStats(q, dropId){
+      var key = (dropId||"*") + "|" + q;
+      if(QUALITY_STATS_CACHE[key]) return QUALITY_STATS_CACHE[key];
+      var src=ITEM_DB.byQ[String(q)]||[];
+      if(!src.length){ return QUALITY_STATS_CACHE[key]={ mean:0, variance:0, p50:0, count:0 }; }
+      var resolved = DROP_ITEM_WEIGHTS.loaded ? resolveDropToItems(dropId) : null;
+      var vals=[], sumW=0, i, wv;
+      for(i=0;i<src.length;i++){
+        wv = resolved ? (resolved[src[i].id]||0) : 1;
+        if(!isFinite(wv) || wv<0) wv=0;
+        vals.push({ val:src[i].value, w:wv });
+        sumW += wv;
+      }
+      if(!(sumW>0)){ sumW=0; for(i=0;i<vals.length;i++){ vals[i].w=1; sumW++; } }
+      var m=0, v2=0, j;
+      for(j=0;j<vals.length;j++) m += vals[j].val * (vals[j].w/sumW);
+      for(j=0;j<vals.length;j++){ var d=vals[j].val-m; v2 += d*d*(vals[j].w/sumW); }
+      var p50 = weightedQuantile(vals, 0.5);
+      return QUALITY_STATS_CACHE[key]={ mean:m, variance:v2, p50:p50, count:vals.length };
+    }
+    function getQualityUnitPriceP50(q, dropId, fallback){
+      var st=getQualityStats(q, dropId);
+      if(st.count<=0) return fallback;
+      return st.p50>0 ? st.p50 : fallback;
+    }
+    function getQualityUnitPriceMean(q, dropId, fallback){
+      var st=getQualityStats(q, dropId);
+      if(st.count<=0) return fallback;
+      return st.mean>0 ? st.mean : fallback;
+    }
+    /**
+     * 地图级真实品质概率（结合 drop 图）：比单用区域档 DROP_W 更精确。
+     * 未加载数据时回退到 tier 级别；极小概率加下限避免 log(0)。
+     */
+    function getMapQualityProbs(dropId, tier){
+      var cacheKey = (dropId||"")+"|"+tier;
+      if(MAP_QUALITY_PROB_CACHE[cacheKey]) return MAP_QUALITY_PROB_CACHE[cacheKey];
+      var w=DROP_W[tier], sumAll=w[0]+w[1]+w[2]+w[3]+w[4]+w[5];
+      var pLow=(w[0]+w[1])/sumAll, pHigh=1-pLow;
+      var highW=w[2]+w[3]+w[4]+w[5];
+      var fallback={ pLow:pLow, pHigh:pHigh, pB:w[2]/highW, pP:w[3]/highW, pG:w[4]/highW, pR:w[5]/highW, source:"tier" };
+      if(!DROP_ITEM_WEIGHTS.loaded || !ITEM_DB.loaded || !dropId){ MAP_QUALITY_PROB_CACHE[cacheKey]=fallback; return fallback; }
+      var resolved=resolveDropToItems(dropId);
+      if(!resolved){ MAP_QUALITY_PROB_CACHE[cacheKey]=fallback; return fallback; }
+      var bucket={3:0,4:0,5:0,6:0}, sumHigh=0, k, it;
+      for(k in resolved){
+        it=ITEM_DB.byId[k];
+        if(!it || it.quality<3 || it.quality>6) continue;
+        bucket[it.quality]+=resolved[k];
+        sumHigh+=resolved[k];
+      }
+      if(!(sumHigh>0)){ MAP_QUALITY_PROB_CACHE[cacheKey]=fallback; return fallback; }
+      // 低品 pLow 沿用区域档（绿白不在物品库里），高品内部改用地图图
+      var out={ pLow:pLow, pHigh:pHigh, pB:bucket[3]/sumHigh, pP:bucket[4]/sumHigh, pG:bucket[5]/sumHigh, pR:bucket[6]/sumHigh, source:"map" };
+      // 罕见品给一个最低 floor（默认 tier 的 1/10），避免 log(0) 爆炸
+      var floorB=Math.max(1e-4, fallback.pB*0.1), floorP=Math.max(1e-4, fallback.pP*0.1), floorG=Math.max(1e-4, fallback.pG*0.1), floorR=Math.max(1e-4, fallback.pR*0.1);
+      if(out.pB<floorB) out.pB=floorB;
+      if(out.pP<floorP) out.pP=floorP;
+      if(out.pG<floorG) out.pG=floorG;
+      if(out.pR<floorR) out.pR=floorR;
+      var norm=out.pB+out.pP+out.pG+out.pR;
+      if(norm>0){ out.pB/=norm; out.pP/=norm; out.pG/=norm; out.pR/=norm; }
+      MAP_QUALITY_PROB_CACHE[cacheKey]=out; return out;
+    }
+    function clamp01(x){ if(x<0) return 0; if(x>1) return 1; return x; }
+    function constraintFitScore(count, grids){
+      var opts = grids ? grids.length : 0;
+      if(count===0) return opts>0 ? 1 : 0;
+      var span = 18*count - count + 1;
+      if(span<=1) return 1;
+      if(opts<=0) return 0;
+      return clamp01(1 - (opts-1)/(span-1));
+    }
+    var _lf=[0];
+    function logFact(n){ while(_lf.length<=n){ var k=_lf.length; _lf.push(_lf[k-1]+Math.log(k)); } return _lf[n]; }
+    function logChoose(n,k){ if(k<0||k>n) return -1e99; return logFact(n)-logFact(k)-logFact(n-k); }
+    function logBinomP(n,k,p){
+      if(p<=0) return k===0?0:-1e99;
+      if(p>=1) return k===n?0:-1e99;
+      return logChoose(n,k) + k*Math.log(p) + (n-k)*Math.log(1-p);
+    }
+    // 预填常用 logFact，避免热点路径里反复扩容
+    (function(){ for(var _i=1; _i<=200; _i++) logFact(_i); })();
+    function parseCsvLine(line){
+      var out=[], cur="", q=false, i, ch;
+      for(i=0;i<line.length;i++){
+        ch=line.charAt(i);
+        if(ch==="\""){ if(q && line.charAt(i+1)==="\""){ cur+="\""; i++; } else { q=!q; } }
+        else if(ch==="," && !q){ out.push(cur); cur=""; }
+        else cur+=ch;
+      }
+      out.push(cur);
+      return out;
+    }
+    function parseGridArea(raw){
+      if(raw===null||raw===undefined) return null;
+      var s=String(raw).trim();
+      if(!s) return null;
+      if(s.charAt(0)==="\"" && s.charAt(s.length-1)==="\"") s=s.slice(1,-1);
+      var m=s.match(/\[\s*(\d+)\s*,\s*(\d+)\s*\]/);
+      if(!m) return null;
+      var w=parseInt(m[1],10), h=parseInt(m[2],10);
+      if(!isFinite(w)||!isFinite(h)||w<=0||h<=0) return null;
+      var area=w*h;
+      // item_prices.csv 里的 [10,5] 多为UI尺寸，不是占格。占格仅接受 1~18。
+      if(area<1||area>18) return null;
+      return area;
+    }
+    function parseShapeArea(raw){
+      if(raw===null||raw===undefined) return null;
+      var s=String(raw).trim();
+      if(!s) return null;
+      var n=parseInt(s,10);
+      if(!isFinite(n) || n<=0) return null;
+      var w=Math.floor(n/10), h=n%10;
+      if(!isFinite(w)||!isFinite(h)||w<=0||h<=0) return null;
+      var area=w*h;
+      if(area<1||area>18) return null;
+      return area;
+    }
+    function loadItemCsvText(text){
+      var lines=text.replace(/\r/g,"").split("\n");
+      if(!lines.length) return false;
+      var head=parseCsvLine(lines[0]);
+      var iId=head.indexOf("item_id"), iName=head.indexOf("name"), iQ=head.indexOf("quality"), iVal=head.indexOf("base_value"), iShape=head.indexOf("shape"), iGrid=head.indexOf("grid_size");
+      if(iId<0||iName<0||iQ<0||iVal<0) return false;
+      ITEM_DB.byQ={"3":[],"4":[],"5":[],"6":[]};
+      ITEM_DB.byId={};
+      var trustedGridCount=0, trustedByShape=0, trustedByGridSize=0, ignoredUiLikeGridCount=0;
+      var i;
+      for(i=1;i<lines.length;i++){
+        if(!lines[i]) continue;
+        var c=parseCsvLine(lines[i]);
+        var q=parseInt(c[iQ],10), v=parseFloat(c[iVal]);
+        if(!(q===3||q===4||q===5||q===6) || !isFinite(v) || v<=0) continue;
+        var rawShape=iShape>=0 ? (c[iShape]||"") : "";
+        var rawGrid=iGrid>=0 ? (c[iGrid]||"") : "";
+        var gArea=parseShapeArea(rawShape);
+        if(gArea!==null){ trustedGridCount++; trustedByShape++; }
+        else{
+          gArea=iGrid>=0 ? parseGridArea(rawGrid) : null;
+          if(gArea!==null){ trustedGridCount++; trustedByGridSize++; }
+          else if(rawGrid && String(rawGrid).trim()) ignoredUiLikeGridCount++;
+        }
+        var rec={ id:c[iId], name:c[iName], value:v, quality:q, grid:gArea, gridTrusted:(gArea!==null) };
+        ITEM_DB.byQ[String(q)].push(rec);
+        ITEM_DB.byId[String(c[iId])] = rec;
+      }
+      ITEM_DB.loaded = ITEM_DB.byQ["3"].length+ITEM_DB.byQ["4"].length+ITEM_DB.byQ["5"].length+ITEM_DB.byQ["6"].length > 0;
+      var st=$id("itemDataStatus");
+      if(ITEM_DB.loaded){
+        st.textContent="物品级组成：已加载（Q3/Q4/Q5/Q6 = "+ITEM_DB.byQ["3"].length+"/"+ITEM_DB.byQ["4"].length+"/"+ITEM_DB.byQ["5"].length+"/"+ITEM_DB.byQ["6"].length+"）。占格数据：有效 "+trustedGridCount+"（shape解码 "+trustedByShape+"，grid_size回退 "+trustedByGridSize+"），忽略疑似UI尺寸 "+ignoredUiLikeGridCount+"。";
+      } else {
+        st.textContent="物品级组成：未读到可用品质物品。";
+      }
+      return ITEM_DB.loaded;
+    }
+    function loadDropCsvText(text){
+      var lines=text.replace(/\r/g,"").split("\n");
+      if(!lines.length) return false;
+      var head=parseCsvLine(lines[0]);
+      var iDrop=head.indexOf("drop_id"), iRef=head.indexOf("ref_id"), iW=head.indexOf("weight"), iType=head.indexOf("ref_type");
+      if(iDrop<0||iRef<0||iW<0) return false;
+      DROP_ITEM_WEIGHTS.graph={};
+      DROP_ITEM_WEIGHTS.resolvedCache={};
+      var i;
+      for(i=1;i<lines.length;i++){
+        if(!lines[i]) continue;
+        var c=parseCsvLine(lines[i]);
+        var did=c[iDrop], rid=c[iRef], wv=parseFloat(c[iW]), rtype=(iType>=0?c[iType]:"");
+        if(!did || !rid || !isFinite(wv) || wv<=0) continue;
+        if(!DROP_ITEM_WEIGHTS.graph[did]) DROP_ITEM_WEIGHTS.graph[did]={ total:0, edges:[] };
+        DROP_ITEM_WEIGHTS.graph[did].edges.push({ refId:String(rid), refType:String(rtype), weight:wv });
+        DROP_ITEM_WEIGHTS.graph[did].total += wv;
+      }
+      var key, db, e;
+      for(key in DROP_ITEM_WEIGHTS.graph){
+        db=DROP_ITEM_WEIGHTS.graph[key];
+        if(db.total>0){
+          for(e=0;e<db.edges.length;e++) db.edges[e].p = db.edges[e].weight / db.total;
+        }
+      }
+      DROP_ITEM_WEIGHTS.loaded = Object.keys(DROP_ITEM_WEIGHTS.graph).length>0;
+      var st=$id("dropDataStatus");
+      st.textContent = DROP_ITEM_WEIGHTS.loaded
+        ? "物品权重：已加载（drop_id 数量 "+Object.keys(DROP_ITEM_WEIGHTS.graph).length+"，含层级展开）。"
+        : "物品权重：未读到可用数据。";
+      return DROP_ITEM_WEIGHTS.loaded;
+    }
+    function loadMergedCsvText(text){
+      var lines=text.replace(/\r/g,"").split("\n");
+      if(!lines.length) return false;
+      var head=parseCsvLine(lines[0]);
+      var iType=head.indexOf("record_type");
+      var iItemId=head.indexOf("item_id"), iName=head.indexOf("name"), iQ=head.indexOf("quality"), iVal=head.indexOf("base_value"), iShape=head.indexOf("shape");
+      var iDrop=head.indexOf("drop_id"), iRef=head.indexOf("ref_id"), iW=head.indexOf("weight"), iRefType=head.indexOf("ref_type");
+      if(iType<0 || iItemId<0 || iName<0 || iQ<0 || iVal<0 || iShape<0 || iDrop<0 || iRef<0 || iW<0) return false;
+      ITEM_DB.byQ={"3":[],"4":[],"5":[],"6":[]};
+      ITEM_DB.byId={};
+      DROP_ITEM_WEIGHTS.graph={};
+      DROP_ITEM_WEIGHTS.resolvedCache={};
+      var trustedGridCount=0, trustedByShape=0, itemRows=0, dropRows=0, i;
+      for(i=1;i<lines.length;i++){
+        if(!lines[i]) continue;
+        var c=parseCsvLine(lines[i]);
+        var tp=String(c[iType]||"").toUpperCase();
+        if(tp==="ITEM"){
+          var q=parseInt(c[iQ],10), v=parseFloat(c[iVal]);
+          if(!(q===3||q===4||q===5||q===6) || !isFinite(v) || v<=0) continue;
+          var gArea=parseShapeArea(c[iShape]);
+          if(gArea!==null){ trustedGridCount++; trustedByShape++; }
+          var rec={ id:c[iItemId], name:c[iName], value:v, quality:q, grid:gArea, gridTrusted:(gArea!==null) };
+          ITEM_DB.byQ[String(q)].push(rec);
+          ITEM_DB.byId[String(c[iItemId])] = rec;
+          itemRows++;
+        } else if(tp==="DROP"){
+          var did=c[iDrop], rid=c[iRef], wv=parseFloat(c[iW]), rtype=(iRefType>=0?c[iRefType]:"");
+          if(!did || !rid || !isFinite(wv) || wv<=0) continue;
+          if(!DROP_ITEM_WEIGHTS.graph[did]) DROP_ITEM_WEIGHTS.graph[did]={ total:0, edges:[] };
+          DROP_ITEM_WEIGHTS.graph[did].edges.push({ refId:String(rid), refType:String(rtype), weight:wv });
+          DROP_ITEM_WEIGHTS.graph[did].total += wv;
+          dropRows++;
+        }
+      }
+      ITEM_DB.loaded = ITEM_DB.byQ["3"].length+ITEM_DB.byQ["4"].length+ITEM_DB.byQ["5"].length+ITEM_DB.byQ["6"].length > 0;
+      var key, db, e;
+      for(key in DROP_ITEM_WEIGHTS.graph){
+        db=DROP_ITEM_WEIGHTS.graph[key];
+        if(db.total>0){
+          for(e=0;e<db.edges.length;e++) db.edges[e].p = db.edges[e].weight / db.total;
+        }
+      }
+      DROP_ITEM_WEIGHTS.loaded = Object.keys(DROP_ITEM_WEIGHTS.graph).length>0;
+      $id("itemDataStatus").textContent = ITEM_DB.loaded
+        ? "物品级组成：已加载（Q3/Q4/Q5/Q6 = "+ITEM_DB.byQ["3"].length+"/"+ITEM_DB.byQ["4"].length+"/"+ITEM_DB.byQ["5"].length+"/"+ITEM_DB.byQ["6"].length+"）。占格数据：有效 "+trustedGridCount+"（shape解码 "+trustedByShape+"）。"
+        : "物品级组成：未读到可用品质物品。";
+      $id("dropDataStatus").textContent = DROP_ITEM_WEIGHTS.loaded
+        ? "物品权重：已加载（drop_id 数量 "+Object.keys(DROP_ITEM_WEIGHTS.graph).length+"，含层级展开）。"
+        : "物品权重：未读到可用数据。";
+      $id("mergedDataStatus").textContent = "合并数据：已加载（ITEM 行 "+itemRows+"，DROP 行 "+dropRows+"）。";
+      return ITEM_DB.loaded && DROP_ITEM_WEIGHTS.loaded;
+    }
+    function resolveDropToItems(dropId){
+      var root=String(dropId||"");
+      if(!root || !DROP_ITEM_WEIGHTS.loaded) return null;
+      if(DROP_ITEM_WEIGHTS.resolvedCache[root]) return DROP_ITEM_WEIGHTS.resolvedCache[root];
+      var out={}, graph=DROP_ITEM_WEIGHTS.graph;
+      function add(itemId, p){
+        if(!ITEM_DB.byId[itemId]) return;
+        out[itemId]=(out[itemId]||0)+p;
+      }
+      function dfs(did, scale, path){
+        var node=graph[did];
+        if(!node || !node.edges || !node.edges.length) return;
+        var i;
+        for(i=0;i<node.edges.length;i++){
+          var edge=node.edges[i];
+          var child=edge.refId;
+          var childScale=scale*(edge.p||0);
+          var childHasNode=!!graph[child];
+          var childIsKnownItem=!!ITEM_DB.byId[child];
+          if(childIsKnownItem) add(child, childScale);
+          if(childHasNode && !childIsKnownItem && !path[child]){
+            path[child]=1;
+            dfs(child, childScale, path);
+            delete path[child];
+          }
+        }
+      }
+      var path={}; path[root]=1;
+      dfs(root, 1, path);
+      var s=0, k;
+      for(k in out) s+=out[k];
+      if(s>0){ for(k in out) out[k]/=s; }
+      DROP_ITEM_WEIGHTS.resolvedCache[root]=out;
+      return out;
+    }
+    function getItemMapWeight(dropId, itemId){
+      if(!DROP_ITEM_WEIGHTS.loaded || !dropId) return 0;
+      var resolved=resolveDropToItems(dropId);
+      if(!resolved) return 0;
+      return resolved[String(itemId)]||0;
+    }
+    function choosePool(q, unitTarget, dropId, targetGrid, count){
+      var hasG=(targetGrid!==null&&targetGrid!==undefined&&count>0);
+      // 按 bucket 缓存：unitTarget 按 200 一档、targetGrid 整数、count 原值
+      var cacheKey = (dropId||"*")+"|"+q+"|"+(isFinite(unitTarget)?Math.round(unitTarget/200):"-")+"|"+(hasG?Math.round(targetGrid):"-")+"|"+(count||0);
+      if(CHOOSE_POOL_CACHE[cacheKey]) return CHOOSE_POOL_CACHE[cacheKey];
+      var srcAll=ITEM_DB.byQ[String(q)]||[];
+      if(!srcAll.length){ CHOOSE_POOL_CACHE[cacheKey]=[]; return []; }
+      var src=srcAll;
+      if(hasG){
+        var trusted=srcAll.filter(function(it){ return !!it.gridTrusted; });
+        if(trusted.length) src=trusted;
+      }
+      // 把 dropId 的 resolved 图解出来，局部直查代替 getItemMapWeight 里的二次走缓存
+      var resolved = DROP_ITEM_WEIGHTS.loaded ? resolveDropToItems(dropId) : null;
+      function mw(it){ return resolved ? (resolved[it.id]||0) : 0; }
+      var byValue=src.slice().sort(function(a,b){
+        var da=Math.abs(a.value-unitTarget), db=Math.abs(b.value-unitTarget);
+        if(Math.abs(da-db)>1e-9) return da-db;
+        return mw(b)-mw(a);
+      });
+      if(!hasG){ var out18=byValue.slice(0, 18); CHOOSE_POOL_CACHE[cacheKey]=out18; return out18; }
+      var unitGrid=targetGrid/Math.max(1,count);
+      var byGrid=src.slice().sort(function(a,b){
+        var ga=Math.abs((a.grid||0)-unitGrid), gb=Math.abs((b.grid||0)-unitGrid);
+        if(Math.abs(ga-gb)>1e-9) return ga-gb;
+        return Math.abs(a.value-unitTarget)-Math.abs(b.value-unitTarget);
+      });
+      var byMap=src.slice().sort(function(a,b){ return mw(b)-mw(a); });
+      var keep=Math.min(60, src.length), pick={}, out=[];
+      function addTop(arr, n){
+        var j;
+        for(j=0;j<Math.min(n, arr.length);j++){
+          var it=arr[j];
+          if(pick[it.id]) continue;
+          pick[it.id]=1;
+          out.push(it);
+        }
+      }
+      addTop(byGrid, Math.min(keep, 30));
+      addTop(byValue, Math.min(keep, 30));
+      addTop(byMap, Math.min(keep, 20));
+      if(out.length<Math.min(12, src.length)) addTop(byValue, Math.min(12, src.length));
+      var sliced=out.slice(0, keep);
+      CHOOSE_POOL_CACHE[cacheKey]=sliced;
+      return sliced;
+    }
+    /**
+     * 当 beam+裁剪池找不到「总格硬匹配」时，在两件组合上作全量枚举（n≈100 时 1e4 级）。
+     * 原因：金 7.5 均格 → 两金总格 15，全库中只能 3+12、6+9 等；池里若先被「近均格 7.5」筛进大量 8 格，
+     * 下一步需要 7 格（数据集中无金 7 格）会死路。穷举能找回可行组合。
+     */
+    function tryExhaustivePairExactGrid(q, targetGrid, targetSum, dropId){
+      if(!ITEM_DB.loaded) return null;
+      var trusted=(ITEM_DB.byQ[String(q)]||[]).filter(function(it){ return it.gridTrusted; });
+      if(trusted.length<1) return null;
+      var resolved = DROP_ITEM_WEIGHTS.loaded ? resolveDropToItems(dropId) : null;
+      function mw(it){ return resolved ? (resolved[it.id]||0) : 0; }
+      var best=null, bestKey=null, i, j, a, b, gsum, vsum, sc, wA, wB, valErr;
+      for(i=0;i<trusted.length;i++) for(j=0;j<trusted.length;j++){
+        a=trusted[i]; b=trusted[j];
+        gsum=(a.grid||0)+(b.grid||0);
+        if(gsum!==targetGrid) continue;
+        vsum=a.value+b.value;
+        wA=Math.log(Math.max(mw(a),1e-9));
+        wB=Math.log(Math.max(mw(b),1e-9));
+        valErr=Math.abs(vsum-targetSum)/Math.max(1,targetSum);
+        sc=valErr-0.15*(wA+wB);
+        if(best===null || sc<bestKey-1e-12 || (Math.abs(sc-bestKey)<=1e-12 && (wA+wB)>(best.logMapW+1e-9))){
+          bestKey=sc;
+          var picks={};
+          if(a.id===b.id) picks[a.id]=2;
+          else{ picks[a.id]=1; picks[b.id]=1; }
+          best={ sum:vsum, grid:gsum, unknownGrid:0, logMapW:wA+wB, picks:picks };
+        }
+      }
+      return best;
+    }
+    function picksToComposeItems(picks, pool){
+      var out=[], k, i, u;
+      for(k in picks) if(picks.hasOwnProperty(k)){
+        u=ITEM_DB.byId[k];
+        if(!u) for(i=0;i<pool.length;i++) if(pool[i].id===k){ u=pool[i]; break; }
+        if(u) out.push({ name:u.name, count:picks[k], value:u.value });
+        else out.push({ name:"#"+k, count:picks[k], value:0 });
+      }
+      out.sort(function(a,b){ return b.value-a.value; });
+      return out;
+    }
+    /** 总格最优先；仅填均格时按件数反推总格以参与物品拟合。未提供格/该色均格时返回 null，走软拟合（不强制加总格=某整数）。 */
+    function impliedTargetGridForCompose(count, gridIn, avgIn){
+      if(count<=0) return null;
+      if(gridIn!==null && isFinite(gridIn)) return Math.round(gridIn);
+      if(avgIn!==null && isFinite(avgIn) && avgIn>0){
+        var g=Math.round(count*avgIn);
+        return Math.max(count, Math.min(18*count, g));
+      }
+      return null;
+    }
+    /** QuickSelect：O(n) 平均时间找前 k 小，比 sort+slice 快 3~5× 当 n 远大于 k 时。 */
+    function quickSelectTopK(arr, k, cmp){
+      if(arr.length<=k){ arr.sort(cmp); return arr; }
+      function partition(l, r, pivotIdx){
+        var pivotVal=arr[pivotIdx], tmp=arr[pivotIdx];
+        arr[pivotIdx]=arr[r]; arr[r]=tmp;
+        var store=l, i;
+        for(i=l;i<r;i++){
+          if(cmp(arr[i], pivotVal)<0){
+            tmp=arr[store]; arr[store]=arr[i]; arr[i]=tmp;
+            store++;
+          }
+        }
+        tmp=arr[store]; arr[store]=arr[r]; arr[r]=tmp;
+        return store;
+      }
+      var l=0, r=arr.length-1;
+      while(l<r){
+        var pivotIdx=(l+r)>>1;
+        var p=partition(l,r,pivotIdx);
+        if(p===k) break;
+        if(p<k) l=p+1; else r=p-1;
+      }
+      var head = arr.slice(0, k);
+      head.sort(cmp);
+      return head;
+    }
+    /**
+     * Beam Search：用 Int8Array 存每个池槽位的选中数量（替代 Object.assign 字典克隆）；
+     * 自适应 beam 宽（count 越小越窄）；用 QuickSelect 选 top-K；
+     * 成本函数在"有 targetGrid 时"格差×3 主导，logMapW 系数提到 0.15。
+     */
+    function composeItemsForQuality(q, count, targetSum, targetGrid, dropId){
+      if(!ITEM_DB.loaded || count<=0) return null;
+      var unit=targetSum/count;
+      var pool=choosePool(q, unit, dropId, targetGrid, count);
+      var poolN=pool.length;
+      if(!poolN) return null;
+      var resolved = DROP_ITEM_WEIGHTS.loaded ? resolveDropToItems(dropId) : null;
+      // 预计算池内各项的 val/grid/trusted/logMW
+      var poolVal=new Float64Array(poolN), poolGrid=new Int32Array(poolN), poolTrusted=new Uint8Array(poolN), poolLogMW=new Float64Array(poolN);
+      var i;
+      for(i=0;i<poolN;i++){
+        poolVal[i]=pool[i].value;
+        poolGrid[i]=pool[i].gridTrusted ? (pool[i].grid||0) : 0;
+        poolTrusted[i]=pool[i].gridTrusted?1:0;
+        var mwv=resolved ? (resolved[pool[i].id]||0) : 0;
+        poolLogMW[i]=Math.log(Math.max(mwv,1e-9));
+      }
+      // Beam 宽度自适应
+      var beamWidth = count<=2 ? 24 : (count<=4 ? 48 : (count<=8 ? 64 : 80));
+      var beams=[{ counts:new Int8Array(poolN), sum:0, grid:0, unknownGrid:0, logMapW:0 }];
+      var scoreHasG = (targetGrid!==null && targetGrid!==undefined);
+      function scoreState(st){
+        var valX=Math.abs(st.sum-targetSum)/Math.max(1,targetSum);
+        var gX=0;
+        if(scoreHasG) gX=Math.abs(st.grid-targetGrid)/Math.max(1,targetGrid);
+        return scoreHasG ? (gX*3 + valX*0.6 - 0.15*st.logMapW) : (valX + 0.4*gX - 0.15*st.logMapW);
+      }
+      var step, bi;
+      for(step=0; step<count; step++){
+        var next=new Array(beams.length*poolN);
+        var ni=0;
+        for(bi=0;bi<beams.length;bi++){
+          var base=beams[bi];
+          for(i=0;i<poolN;i++){
+            var nc=new Int8Array(base.counts);
+            nc[i]++;
+            next[ni++]={
+              counts:nc,
+              sum:base.sum+poolVal[i],
+              grid:base.grid+poolGrid[i],
+              unknownGrid:base.unknownGrid+(poolTrusted[i]?0:1),
+              logMapW:base.logMapW+poolLogMW[i]
+            };
+          }
+        }
+        next.length=ni;
+        var cmp=function(x,y){ return scoreState(x)-scoreState(y); };
+        beams = quickSelectTopK(next, Math.min(beamWidth, next.length), cmp);
+      }
+      if(!beams.length) return null;
+      var best=beams[0];
+      if(scoreHasG){
+        var exact=null, j;
+        for(j=0;j<beams.length;j++){
+          if(beams[j].unknownGrid===0 && beams[j].grid===targetGrid){ exact=beams[j]; break; }
+        }
+        if(!exact){
+          var hasUnknown=false;
+          for(j=0;j<beams.length;j++){ if(beams[j].unknownGrid>0){ hasUnknown=true; break; } }
+          if(hasUnknown) return { noGridData: true, targetGrid: targetGrid };
+          if(count===2){
+            var exPair=tryExhaustivePairExactGrid(q, targetGrid, targetSum, dropId);
+            if(exPair) return { sum:exPair.sum, grid:exPair.grid, gridUnknown:false, items:picksToComposeItems(exPair.picks, pool), mapScore:exPair.logMapW, gridMatched:true };
+            return { noExactGrid: true, targetGrid: targetGrid };
+          } else {
+            return { noExactGrid: true, targetGrid: targetGrid };
+          }
+        } else {
+          best=exact;
+        }
+      }
+      // 把 Int8Array 转回 picks（id -> count）
+      var picks={};
+      for(i=0;i<poolN;i++){ if(best.counts[i]>0) picks[pool[i].id]=best.counts[i]; }
+      return { sum:best.sum, grid:best.grid, gridUnknown:best.unknownGrid>0, items:picksToComposeItems(picks, pool), mapScore:best.logMapW, gridMatched:true };
+    }
+    function highValueForQualityWithItems(cache, q, count, priceMean, gridIn, avgIn, dropId){
+      if(count<=0) return 0;
+      if(!ITEM_DB.loaded) return count*priceMean;
+      var tG=impliedTargetGridForCompose(count, gridIn, avgIn);
+      var ck=String(q)+","+count+","+(tG===null?"-":tG);
+      if(cache[ck]!==undefined) return cache[ck];
+      var comp=composeItemsForQuality(q, count, count*priceMean, tG, dropId);
+      var v=count*priceMean;
+      if(comp && isFinite(comp.sum) && !comp.noGridData && !comp.noExactGrid) v=comp.sum;
+      cache[ck]=v;
+      return v;
+    }
+    function recalc(){
+      // 切换地图/上传数据等可能改变品质统计，每次重算刷新缓存
+      QUALITY_STATS_CACHE = {};
+      CHOOSE_POOL_CACHE = {};
+      MAP_QUALITY_PROB_CACHE = {};
+
+      var err=$id("error"), content=$id("content"), warns=[];
+      err.style.display="none"; err.textContent="";
+      var tier=$id("tier").value, map=mapInfo(), row=map&&NEST_WEIGHTED[map.nest]?NEST_WEIGHTED[map.nest]:null;
+      var totalInput=pi("totalCount"), gwInput=pi("gwCount"), gwGrid=pi("gwGrid"), gwAvgInput=pf("avgGw"), totalGridAll=pf("totalGridAll"), avgGridAll=pf("avgGridAll"), safety=pf("safety"), maxShow=pi("maxShow");
+      var gwAvgKey=avgKey(gwAvgInput);
+      var gridBlueInput=pi("gridBlue"), gridPurpleInput=pi("gridPurple"), gridGoldInput=pi("gridGold"), gridRedInput=pi("gridRed");
+      var avgBlueInput=pf("avgBlue"), avgPurpleInput=pf("avgPurple"), avgGoldInput=pf("avgGold"), avgRedInput=pf("avgRed");
+      var countBlueInput=pi("countBlue"), countPurpleInput=pi("countPurple"), countGoldInput=pi("countGold"), countRedInput=pi("countRed");
+      if(safety===null||!isFinite(safety)||safety<=0) safety=0.9;
+      if(maxShow===null||!isFinite(maxShow)||maxShow<1) maxShow=10;
+      if(totalInput!==null && (isNaN(totalInput) || totalInput<1)){ err.textContent="总件数不合法（需填写 >=1 的整数）。"; err.style.display="block"; return; }
+      if(gwGrid!==null && (isNaN(gwGrid)||gwGrid<0)){ err.textContent="绿白总格数不合法。"; err.style.display="block"; return; }
+      if(totalGridAll!==null && (!isFinite(totalGridAll) || totalGridAll<0)){ err.textContent="总格数不合法。"; err.style.display="block"; return; }
+      if(avgGridAll!==null && (!isFinite(avgGridAll) || avgGridAll<0)){ err.textContent="全藏品均格不合法。"; err.style.display="block"; return; }
+      if(gwAvgInput!==null && (!isFinite(gwAvgInput) || gwAvgInput<0)){ err.textContent="绿白均格不合法。"; err.style.display="block"; return; }
+      if(gwInput!==null && gwGrid!==null){
+        if((gwInput===0 && gwGrid!==0) || (gwInput>0 && (gwGrid<gwInput || gwGrid>18*gwInput))){
+          err.textContent="绿白总数与绿白总格数不一致（需满足 0件=0格，或 n<=格<=18n）。";
+          err.style.display="block";
+          return;
+        }
+      }
+      if(!row){ err.textContent="地图价格数据不存在。"; err.style.display="block"; return; }
+
+      // §6 地图级真实品质概率（若已加载 drop 图）
+      var qp = getMapQualityProbs(map.nest, tier);
+      var w=DROP_W[tier];
+      var pLow=qp.pLow, pHigh=qp.pHigh, pB=qp.pB, pP=qp.pP, pG=qp.pG, pR=qp.pR;
+
+      function modelAvgGridForQuality(q, fallback){
+        if(!ITEM_DB.loaded) return fallback;
+        var arr=ITEM_DB.byQ[String(q)]||[];
+        if(!arr.length) return fallback;
+        // 把 resolved 拉到局部变量，避免 getItemMapWeight 每次重查
+        var resolved = DROP_ITEM_WEIGHTS.loaded ? resolveDropToItems(map.nest) : null;
+        var sum=0, sw=0, i;
+        for(i=0;i<arr.length;i++){
+          var it=arr[i];
+          if(!it.gridTrusted) continue;
+          var mw=resolved ? (resolved[it.id]||0) : 0;
+          var wt=(mw>0?mw:0.001);
+          sum += (it.grid||0)*wt;
+          sw += wt;
+        }
+        if(sw<=0) return fallback;
+        return Math.max(1, Math.min(18, sum/sw));
+      }
+      var avgGridBlueModel=modelAvgGridForQuality(3, 2.2);
+      var avgGridPurpleModel=modelAvgGridForQuality(4, 2.4);
+      var avgGridGoldModel=modelAvgGridForQuality(5, 2.8);
+      var avgGridRedModel=modelAvgGridForQuality(6, 3.2);
+      var avgGridGwModel=avgGridBlueModel; // 绿白不在物品库，借蓝品轮廓
+      var sumAllW=w[0]+w[1]+w[2]+w[3]+w[4]+w[5];
+      var avgAllModel=(w[0]+w[1])/sumAllW*avgGridGwModel
+        + w[2]/sumAllW*avgGridBlueModel
+        + w[3]/sumAllW*avgGridPurpleModel
+        + w[4]/sumAllW*avgGridGoldModel
+        + w[5]/sumAllW*avgGridRedModel;
+      if(!isFinite(avgAllModel) || avgAllModel<=0) avgAllModel=2.5;
+
+      // §4 高品价格均值 / 方差 / P50
+      var statsB=getQualityStats(3, map.nest), statsP=getQualityStats(4, map.nest), statsG=getQualityStats(5, map.nest), statsR=getQualityStats(6, map.nest);
+      var priceB_mean = statsB.count>0 && statsB.mean>0 ? statsB.mean : QUALITY_P50_DEFAULT["3"];
+      var priceP_mean = statsP.count>0 && statsP.mean>0 ? statsP.mean : QUALITY_P50_DEFAULT["4"];
+      var priceG_mean = statsG.count>0 && statsG.mean>0 ? statsG.mean : QUALITY_P50_DEFAULT["5"];
+      var priceR_mean = statsR.count>0 && statsR.mean>0 ? statsR.mean : QUALITY_P50_DEFAULT["6"];
+      var priceB_p50 = statsB.count>0 && statsB.p50>0 ? statsB.p50 : QUALITY_P50_DEFAULT["3"];
+      var priceP_p50 = statsP.count>0 && statsP.p50>0 ? statsP.p50 : QUALITY_P50_DEFAULT["4"];
+      var priceG_p50 = statsG.count>0 && statsG.p50>0 ? statsG.p50 : QUALITY_P50_DEFAULT["5"];
+      var priceR_p50 = statsR.count>0 && statsR.p50>0 ? statsR.p50 : QUALITY_P50_DEFAULT["6"];
+      var priceB_var = statsB.variance, priceP_var = statsP.variance, priceG_var = statsG.variance, priceR_var = statsR.variance;
+      var priceGW=(row[0]*w[0]+row[1]*w[1])/(w[0]+w[1]);
+      var priceSourceText = DROP_ITEM_WEIGHTS.loaded
+        ? "地图加权均值+P50"
+        : (ITEM_DB.loaded ? "全局均值+P50（未加载drop权重）" : "内置全局P50默认值（未加载物品数据）");
+
+      function inferTotalsFromGrid(gridTarget, avgRef){
+        var ratio=gridTarget/avgRef;
+        var raw=[Math.floor(ratio), Math.ceil(ratio), Math.round(ratio)], seen={}, z, out=[], tv, tol=Math.max(4, gridTarget*0.12, Math.abs(ratio)*0.08);
+        for(z=0;z<raw.length;z++){
+          tv=Math.max(1, raw[z]);
+          if(!seen[tv]){ seen[tv]=1; out.push(tv); }
+        }
+        out.sort(function(a,b){ return a-b; });
+        out=out.filter(function(t){ return Math.abs(avgRef*t-gridTarget)<=tol; });
+        if(!out.length) out=[Math.max(1, Math.round(ratio))];
+        return { list:out, ratio:ratio };
+      }
+      var hasQualityCountInput = countBlueInput!==null || countPurpleInput!==null || countGoldInput!==null || countRedInput!==null || gwInput!==null;
+      var hasQualityGridOrAvgInput = gridBlueInput!==null || gridPurpleInput!==null || gridGoldInput!==null || gridRedInput!==null || gwGrid!==null || avgBlueInput!==null || avgPurpleInput!==null || avgGoldInput!==null || avgRedInput!==null || gwAvgInput!==null;
+      var hasAnyQualityConstraint = hasQualityCountInput || hasQualityGridOrAvgInput;
+      function inferTotalFromResidualGrid(totalGridTarget){
+        if(!(totalGridTarget>0)) return null;
+        var specs = [
+          { key:"绿白", count:gwInput, grid:gwGrid, avg:gwAvgInput, model:avgGridGwModel, prob:Math.max(1e-9, pLow) },
+          { key:"蓝", count:countBlueInput, grid:gridBlueInput, avg:avgBlueInput, model:avgGridBlueModel, prob:Math.max(1e-9, pHigh*pB) },
+          { key:"紫", count:countPurpleInput, grid:gridPurpleInput, avg:avgPurpleInput, model:avgGridPurpleModel, prob:Math.max(1e-9, pHigh*pP) },
+          { key:"金", count:countGoldInput, grid:gridGoldInput, avg:avgGoldInput, model:avgGridGoldModel, prob:Math.max(1e-9, pHigh*pG) },
+          { key:"红", count:countRedInput, grid:gridRedInput, avg:avgRedInput, model:avgGridRedModel, prob:Math.max(1e-9, pHigh*pR) }
+        ];
+        var knownGrid=0, knownCountHard=0, knownCountSoft=0, remProb=0, remAvgWeighted=0, i;
+        for(i=0;i<specs.length;i++){
+          var sp=specs[i];
+          var avgRef=(sp.avg!==null && isFinite(sp.avg) && sp.avg>0) ? sp.avg : sp.model;
+          if(sp.count!==null && isFinite(sp.count)) knownCountHard += sp.count;
+          if(sp.grid!==null && isFinite(sp.grid)) knownGrid += sp.grid;
+          else if(sp.count!==null && isFinite(sp.count)) knownGrid += sp.count*avgRef;
+          var hasCount = (sp.count!==null && isFinite(sp.count));
+          var hasGrid = (sp.grid!==null && isFinite(sp.grid));
+          if(hasCount && hasGrid){ continue; }
+          else if(!hasCount && hasGrid){ knownCountSoft += sp.grid/Math.max(1e-9, avgRef); }
+          else if(hasCount && !hasGrid){ continue; }
+          else { remProb += sp.prob; remAvgWeighted += sp.prob*avgRef; }
+        }
+        var remGrid = totalGridTarget - knownGrid;
+        var remAvg = remProb>0 ? (remAvgWeighted/remProb) : avgAllModel;
+        if(!(isFinite(remGrid) && isFinite(remAvg) && remAvg>0)) return null;
+        var ratio = knownCountHard + knownCountSoft + Math.max(0, remGrid)/remAvg;
+        var out=[], cands=[Math.floor(ratio), Math.ceil(ratio), Math.round(ratio)], seen={}, j, t;
+        for(j=0;j<cands.length;j++){
+          t=Math.max(1, cands[j]);
+          if(!seen[t]){ seen[t]=1; out.push(t); }
+        }
+        out=out.filter(function(v){ return v>=Math.ceil(knownCountHard); });
+        out.sort(function(a,b){ return a-b; });
+        if(!out.length) out=[Math.max(1, Math.ceil(knownCountHard))];
+        return { list: out, ratio: ratio, knownGrid: knownGrid, remGrid: remGrid, remAvg: remAvg };
+      }
+      function buildGridResidualHint(totalGridTarget){
+        if(!(isFinite(totalGridTarget) && totalGridTarget>=0)) return null;
+        var specs = [
+          { key:"绿白", count:gwInput, grid:gwGrid, avg:gwAvgInput, model:avgGridGwModel },
+          { key:"蓝", count:countBlueInput, grid:gridBlueInput, avg:avgBlueInput, model:avgGridBlueModel },
+          { key:"紫", count:countPurpleInput, grid:gridPurpleInput, avg:avgPurpleInput, model:avgGridPurpleModel },
+          { key:"金", count:countGoldInput, grid:gridGoldInput, avg:avgGoldInput, model:avgGridGoldModel },
+          { key:"红", count:countRedInput, grid:gridRedInput, avg:avgRedInput, model:avgGridRedModel }
+        ];
+        var knownGrid=0, knownByInput=0, knownByEstimate=0, detail=[], i;
+        for(i=0;i<specs.length;i++){
+          var sp=specs[i], v=null;
+          if(sp.grid!==null && isFinite(sp.grid)){ v=sp.grid; knownByInput += v; detail.push(sp.key+"(总格)"); }
+          else if(sp.count!==null && isFinite(sp.count)){
+            var avgRef=(sp.avg!==null && isFinite(sp.avg) && sp.avg>0) ? sp.avg : sp.model;
+            v=sp.count*avgRef; knownByEstimate += v; detail.push(sp.key+"(件数×均格)");
+          }
+          if(v!==null) knownGrid += v;
+        }
+        return { knownGrid: knownGrid, remainGrid: totalGridTarget-knownGrid, knownByInput: knownByInput, knownByEstimate: knownByEstimate, detailText: detail.length ? detail.join("、") : "暂无已知品质占格" };
+      }
+
+      // §7 总件数软分布：不再坍缩为单值，而是多候选 + 高斯先验
+      var totalList=[], totalInferRatio=null, totalFromGridAvg=false, totalFromGridModelAvg=false;
+      if(totalInput!==null) totalList=[totalInput];
+      else if(totalGridAll!==null && avgGridAll!==null && isFinite(totalGridAll) && isFinite(avgGridAll)){
+        if(!(totalGridAll>0 && avgGridAll>0)){
+          err.textContent="总格数与全藏品均格同时填写时，两者均需 > 0 才能反推总件数；若只想用总格自动推算，请清空全藏品均格。";
+          err.style.display="block"; return;
+        }
+        totalFromGridAvg=true;
+        var infU=inferTotalsFromGrid(totalGridAll, avgGridAll);
+        totalList=infU.list;
+        totalInferRatio=infU.ratio;
+      } else if(totalGridAll!==null && isFinite(totalGridAll) && totalGridAll>0 && avgGridAll===null){
+        totalFromGridModelAvg=true;
+        var infM=null;
+        if(hasAnyQualityConstraint) infM=inferTotalFromResidualGrid(totalGridAll);
+        if(!infM) infM=inferTotalsFromGrid(totalGridAll, avgAllModel);
+        totalList=infM.list;
+        totalInferRatio=infM.ratio;
+      } else totalList=[30];
+      var totalMax=Math.max.apply(null, totalList);
+      if((totalFromGridAvg||totalFromGridModelAvg) && totalList.length>1 && (totalList[totalList.length-1]-totalList[0])>=3){
+        warns.push("反推件数候选跨度较大（"+totalList[0]+"～"+totalList[totalList.length-1]+"）。若总格为毛估或轮廓数据不全，结果会更分散。");
+      }
+      if(gwInput!==null && (isNaN(gwInput)||gwInput<0||gwInput>totalMax)){ err.textContent="绿白总数不合法。"; err.style.display="block"; return; }
+      if(gwInput!==null && gwAvgKey!==null && !isNaN(gwAvgKey)){
+        if(!gwAvgFeasibleForCount(gwInput, gwAvgKey, gwGrid)){
+          err.textContent="绿白均格与绿白件数/绿白总格无法同时满足（均格按两位小数四舍五入匹配）。";
+          err.style.display="block";
+          return;
+        }
+      }
+      var inferredRedGrid = null;
+      if(totalGridAll!==null && gridRedInput===null && gwGrid!==null && gridBlueInput!==null && gridPurpleInput!==null && gridGoldInput!==null){
+        inferredRedGrid = totalGridAll - gwGrid - gridBlueInput - gridPurpleInput - gridGoldInput;
+        if(inferredRedGrid<0){ err.textContent="全藏品总格小于（绿白+蓝+紫+金）总格之和，无法反推红总格。"; err.style.display="block"; return; }
+        if(Math.abs(inferredRedGrid - Math.round(inferredRedGrid)) > 1e-9){ err.textContent="自动反推红总格时得到非整数，请将全藏品总格与各品质总格改为整数。"; err.style.display="block"; return; }
+        inferredRedGrid = Math.round(inferredRedGrid);
+        gridRedInput = inferredRedGrid;
+        $id("gridRed").value = String(inferredRedGrid);
+      }
+      var totalGridTarget = null;
+      if(totalGridAll!==null) totalGridTarget = totalGridAll;
+      else if(totalGridAll===null && avgGridAll!==null && totalList.length===1) totalGridTarget = avgGridAll * totalList[0];
+      if(totalGridAll!==null && avgGridAll!==null && totalInput!==null){
+        var impliedU = avgGridAll * totalInput;
+        if(Math.abs(impliedU-totalGridAll) > Math.max(2, totalInput*0.1)){
+          warns.push("总格数 与 全藏品均格×总件数 不一致，将优先使用总格数。");
+        }
+      }
+
+      // §1 自适应 σ：σ² = Σ 未填格颜色的 n*varPerItem（经验值）
+      var varPerItem={ gw:2.5, b:3.0, p:3.5, g:4.0, r:5.0 };
+      function sigmaFromUnknowns(b, p, gc, r, gw){
+        var s2=0;
+        if(gwGrid===null) s2 += gw*varPerItem.gw;
+        if(gridBlueInput===null) s2 += b*varPerItem.b;
+        if(gridPurpleInput===null) s2 += p*varPerItem.p;
+        if(gridGoldInput===null) s2 += gc*varPerItem.g;
+        if(gridRedInput===null) s2 += r*varPerItem.r;
+        return Math.max(1.4, Math.sqrt(Math.max(1, s2)));
+      }
+
+      // === 主枚举 ===
+      var combos=[], itemHighValCache={}, tix, gwi, bi, pii, gi;
+      var gwCandidatesShown=[], gwMuShown=0;
+      for(tix=0;tix<totalList.length;tix++){
+        var total=totalList[tix];
+        // §7 多候选总件数的高斯先验（而非旧的线性罚分）
+        var totalPriorLog=0;
+        if((totalFromGridAvg||totalFromGridModelAvg) && totalList.length>1){
+          var refAvg=totalFromGridAvg?avgGridAll:avgAllModel;
+          var devTa=refAvg*total-totalGridAll;
+          var pscaleTa=Math.max(2, totalGridAll*0.055);
+          totalPriorLog=-0.5*(devTa*devTa)/(pscaleTa*pscaleTa);
+        }
+        var gwCandidates=[], mu=total*pLow, sigma=Math.sqrt(total*pLow*(1-pLow));
+        if(gwInput!==null) gwCandidates=[gwInput];
+        else {
+          var lo=Math.max(0, Math.floor(mu-2*sigma)), hi=Math.min(total, Math.ceil(mu+2*sigma));
+          for(gwi=lo; gwi<=hi; gwi++) gwCandidates.push(gwi);
+        }
+        // 合并 grid + avg 的 gw 过滤链（原来是两次独立循环）
+        if(gwGrid!==null || (gwAvgKey!==null && !isNaN(gwAvgKey))){
+          var filtered=[], kk;
+          var minByGrid=gwGrid!==null?Math.ceil(gwGrid/18):0;
+          for(kk=0;kk<gwCandidates.length;kk++){
+            var nCand=gwCandidates[kk];
+            if(gwGrid!==null){
+              if(nCand===0){ if(gwGrid!==0) continue; }
+              else if(nCand<minByGrid || nCand>gwGrid) continue;
+            }
+            if(gwAvgKey!==null && !isNaN(gwAvgKey) && !gwAvgFeasibleForCount(nCand, gwAvgKey, gwGrid)) continue;
+            filtered.push(nCand);
+          }
+          gwCandidates=filtered;
+        }
+        if(!gwCandidates.length) continue;
+        if(tix===0){ gwCandidatesShown=gwCandidates.slice(); gwMuShown=mu; }
+
+        // 预算 log(pB/pP/pG/pR) 一次
+        var logPB=Math.log(pB), logPP=Math.log(pP), logPG=Math.log(pG), logPR=Math.log(pR);
+
+        for(gwi=0; gwi<gwCandidates.length; gwi++){
+          var gw=gwCandidates[gwi], high=total-gw, maxCount=high;
+          if(high<0) continue;
+          var blue=solveColor("蓝",high,"countBlue","gridBlue","avgBlue",maxCount,avgGridBlueModel);
+          var purple=solveColor("紫",high,"countPurple","gridPurple","avgPurple",maxCount,avgGridPurpleModel);
+          var gold=solveColor("金",high,"countGold","gridGold","avgGold",maxCount,avgGridGoldModel);
+          var red=solveColor("红",high,"countRed","gridRed","avgRed",maxCount,avgGridRedModel);
+          warns=warns.concat(blue.warns,purple.warns,gold.warns,red.warns);
+          if(blue.map.size===0||purple.map.size===0||gold.map.size===0||red.map.size===0) continue;
+          // Map 的 keys 已唯一，直接排序替代 uniq
+          var bCounts=Array.from(blue.map.keys()).sort(function(a,b){return a-b;});
+          var pCounts=Array.from(purple.map.keys()).sort(function(a,b){return a-b;});
+          var gCounts=Array.from(gold.map.keys()).sort(function(a,b){return a-b;});
+          var redCounts=Array.from(red.map.keys()).sort(function(a,b){return a-b;});
+          var redSet={}, rr;
+          for(rr=0; rr<redCounts.length; rr++) redSet[redCounts[rr]]=1;
+          var gwLog = gwInput!==null ? 0 : logBinomP(total, gw, pLow);
+
+          // §3 均格先验：返回高斯 log 项（count=0 或未填 avg 时直接 0）
+          function avgPriorLog(count, gridEst, avgIn, baseSigma){
+            if(!(count>0) || avgIn===null || !isFinite(avgIn) || avgIn<=0) return 0;
+            var dv = (gridEst/count) - avgIn;
+            var sd = baseSigma/Math.max(1, Math.sqrt(count));
+            return -0.5*(dv*dv)/(sd*sd);
+          }
+
+          for(bi=0;bi<bCounts.length;bi++) for(pii=0;pii<pCounts.length;pii++) for(gi=0;gi<gCounts.length;gi++){
+            var b=bCounts[bi], p=pCounts[pii], gc=gCounts[gi], r=high-b-p-gc;
+            if(r<0) continue;
+            if(!redSet[r]) continue;
+
+            // 多项分布（多项式系数 + 各色概率）
+            var logw=totalPriorLog + gwLog + (logFact(high)-logFact(b)-logFact(p)-logFact(gc)-logFact(r));
+            if(b>0) logw+=b*logPB;
+            if(p>0) logw+=p*logPP;
+            if(gc>0) logw+=gc*logPG;
+            if(r>0) logw+=r*logPR;
+
+            // 各色占格估计：有 grid 用 grid，有 avg 用 count*avg，否则用轮廓模型
+            var gwGridEst = (gwGrid!==null && isFinite(gwGrid)) ? gwGrid : (gw * (gwAvgInput!==null && isFinite(gwAvgInput) ? gwAvgInput : avgGridGwModel));
+            var gridB_est = (gridBlueInput!==null && isFinite(gridBlueInput)) ? gridBlueInput : (b * (avgBlueInput!==null && isFinite(avgBlueInput) ? avgBlueInput : avgGridBlueModel));
+            var gridP_est = (gridPurpleInput!==null && isFinite(gridPurpleInput)) ? gridPurpleInput : (p * (avgPurpleInput!==null && isFinite(avgPurpleInput) ? avgPurpleInput : avgGridPurpleModel));
+            var gridG_est = (gridGoldInput!==null && isFinite(gridGoldInput)) ? gridGoldInput : (gc * (avgGoldInput!==null && isFinite(avgGoldInput) ? avgGoldInput : avgGridGoldModel));
+            var gridR_est = (gridRedInput!==null && isFinite(gridRedInput)) ? gridRedInput : (r * (avgRedInput!==null && isFinite(avgRedInput) ? avgRedInput : avgGridRedModel));
+            var modelGridEst = gwGridEst + gridB_est + gridP_est + gridG_est + gridR_est;
+
+            // §1 + §2 总格自适应高斯 + 3.5σ 硬剪枝
+            if(totalGridTarget!==null){
+              var sigmaUse = sigmaFromUnknowns(b, p, gc, r, gw);
+              var gridDelta = modelGridEst - totalGridTarget;
+              if(Math.abs(gridDelta) > 3.5*sigmaUse) continue; // 硬剪枝
+              logw += -0.5*(gridDelta*gridDelta)/(sigmaUse*sigmaUse);
+            }
+
+            // §3 每色均格当先验（有填 avg 才生效；sd 随件数缩小）
+            logw += avgPriorLog(b, gridB_est, avgBlueInput, 0.35);
+            logw += avgPriorLog(p, gridP_est, avgPurpleInput, 0.45);
+            logw += avgPriorLog(gc, gridG_est, avgGoldInput, 0.55);
+            logw += avgPriorLog(r, gridR_est, avgRedInput, 0.70);
+            if(gwGrid===null) logw += avgPriorLog(gw, gwGridEst, gwAvgInput, 0.35);
+
+            // §4 高品估值改用 priceMean（不再是 P50），线性和更准确
+            var highVal, highVar=0, fullVal;
+            if(ITEM_DB.loaded){
+              highVal = highValueForQualityWithItems(itemHighValCache,3,b,priceB_mean,gridBlueInput,avgBlueInput,map.nest)
+                      + highValueForQualityWithItems(itemHighValCache,4,p,priceP_mean,gridPurpleInput,avgPurpleInput,map.nest)
+                      + highValueForQualityWithItems(itemHighValCache,5,gc,priceG_mean,gridGoldInput,avgGoldInput,map.nest)
+                      + highValueForQualityWithItems(itemHighValCache,6,r,priceR_mean,gridRedInput,avgRedInput,map.nest);
+            } else {
+              highVal = b*priceB_mean + p*priceP_mean + gc*priceG_mean + r*priceR_mean;
+            }
+            highVar = b*priceB_var + p*priceP_var + gc*priceG_var + r*priceR_var;
+            fullVal = highVal + gw*priceGW;
+
+            var cBlue = constraintFitScore(b, blue.map.get(b));
+            var cPurple = constraintFitScore(p, purple.map.get(p));
+            var cGold = constraintFitScore(gc, gold.map.get(gc));
+            var cRed = constraintFitScore(r, red.map.get(r));
+            var cScore = (cBlue+cPurple+cGold+cRed)/4;
+            var gridScore = 1;
+            if(totalGridTarget!==null){
+              var de = Math.abs(modelGridEst-totalGridTarget)/Math.max(1,totalGridTarget);
+              gridScore = 1/(1+de*1.35);
+            }
+            combos.push({gw:gw,high:high,b:b,p:p,g:gc,r:r,logw:logw,highVal:highVal,highVar:highVar,fullVal:fullVal,constraintScore:cScore,totalGridEst:modelGridEst,modelGridEst:modelGridEst,gridScore:gridScore,itemTotal:total});
+          }
+        }
+      }
+
+      if(!combos.length){
+        err.textContent = (totalGridTarget!==null)
+          ? "无满足约束的组合（总格硬剪枝 3.5σ 之内无可行件数组合）。请检查总格/件数/均格是否相互冲突，或适当放宽约束。"
+          : "无满足总件数的组合（请放宽件数/总格/均格约束）。";
+        err.style.display="block"; content.innerHTML=""; return;
+      }
+
+      // §9 早停：按 logw 排序，保留累计概率 99.9% 的候选（避免长尾拖累后续计算）
+      combos.sort(function(a,b){ return b.logw-a.logw; });
+      var maxLog=combos[0].logw, i;
+      if(combos.length>8000){
+        var totalExp=0;
+        for(i=0;i<combos.length;i++) totalExp += Math.exp(combos[i].logw-maxLog);
+        var acc=0, cutoff=combos.length;
+        for(i=0;i<combos.length;i++){
+          acc += Math.exp(combos[i].logw-maxLog);
+          if(acc/totalExp >= 0.999){ cutoff=i+1; break; }
+        }
+        if(cutoff<combos.length){
+          combos = combos.slice(0, Math.max(1500, cutoff));
+          warns.push("可行组合长尾已截断：累计概率 99.9% 对应前 "+combos.length+" 项进入估值。");
+        }
+      }
+
+      // 概率归一化
+      var sumw=0;
+      for(i=0;i<combos.length;i++){ combos[i].prob = Math.exp(combos[i].logw-maxLog); sumw += combos[i].prob; }
+      for(i=0;i<combos.length;i++) combos[i].prob /= sumw;
+      combos.sort(function(a,b){ return b.prob-a.prob; });
+
+      // 分位数：组合间 + 组合内 Gaussian 抖动（§4）
+      var expected=0, minV=1e30, maxV=-1e30, vals=[];
+      for(i=0;i<combos.length;i++){
+        expected += combos[i].fullVal*combos[i].prob;
+        if(combos[i].fullVal<minV) minV=combos[i].fullVal;
+        if(combos[i].fullVal>maxV) maxV=combos[i].fullVal;
+        vals.push({val:combos[i].fullVal, w:combos[i].prob});
+      }
+      var p50 = weightedQuantile(vals, 0.5);
+      var p25_inter = weightedQuantile(vals, 0.25);
+      var p75_inter = weightedQuantile(vals, 0.75);
+      var totalVar=0;
+      for(i=0;i<combos.length;i++) totalVar += combos[i].highVar*combos[i].prob;
+      var sdInner = Math.sqrt(Math.max(0, totalVar));
+      // 两层不确定度合并（组合内 sd 折半纳入 P25/P75，避免过度扩张）
+      var p25 = Math.min(p25_inter, p50 - 0.3373*sdInner);
+      var p75 = Math.max(p75_inter, p50 + 0.3373*sdInner);
+
+      var maxProb = combos[0].prob || 1;
+      for(i=0;i<combos.length;i++){
+        var ce = Math.abs(combos[i].fullVal-p50) / Math.max(1, p50);
+        combos[i].priceScore = 1/(1+ce);
+        combos[i].mapScore = combos[i].prob/maxProb;
+        combos[i].finalScore = 0.26*combos[i].priceScore + 0.32*combos[i].mapScore + 0.20*combos[i].constraintScore + 0.22*combos[i].gridScore;
+      }
+      var bidC=p25*safety, bidM=p50*safety, bidA=p75*safety;
+      function countSpan(key){
+        var mn=1e9, mx=-1e9, seen={}, i2, v, cnt=0;
+        for(i2=0;i2<combos.length;i2++){
+          v=combos[i2][key];
+          if(v<mn) mn=v;
+          if(v>mx) mx=v;
+          if(!seen[v]){ seen[v]=1; cnt++; }
+        }
+        return {min:mn,max:mx,distinct:cnt};
+      }
+      var spanGw=countSpan("gw"), spanB=countSpan("b"), spanP=countSpan("p"), spanG=countSpan("g"), spanR=countSpan("r");
+      var smallCombo = combos.length<=5000;
+      function spanText(label, sp){ return label+"："+sp.min+"~"+sp.max+"（"+sp.distinct+"种）"; }
+      var uncertainList=[];
+      if(spanB.distinct>1) uncertainList.push(spanText("蓝", spanB));
+      if(spanP.distinct>1) uncertainList.push(spanText("紫", spanP));
+      if(spanG.distinct>1) uncertainList.push(spanText("金", spanG));
+      if(spanR.distinct>1) uncertainList.push(spanText("红", spanR));
+      if(gwInput===null && spanGw.distinct>1) uncertainList.push(spanText("绿白", spanGw));
+
+      // === 渲染 ===
+      var html="";
+      html+="<p class='hint'>当前地图：<strong>"+map.bid+" "+map.name+"</strong>（嵌套 "+map.nest+"）。高品均值(P50) 蓝/紫/金/红 = <span class='num'>"+f(priceB_mean)+"("+f(priceB_p50)+") / "+f(priceP_mean)+"("+f(priceP_p50)+") / "+f(priceG_mean)+"("+f(priceG_p50)+") / "+f(priceR_mean)+"("+f(priceR_p50)+")</span>（"+priceSourceText+"）。"+
+        (qp.source==="map" ? " 品质概率按该地图 drop 图推导。" : " 品质概率按区域档（未加载 drop/物品数据）。")+
+        (DROP_ITEM_WEIGHTS.loaded ? " 物品级拟合已结合 drop 权重。" : " 物品级拟合暂未结合 drop 权重（可上传启用）。")+
+        "</p>";
+      if(totalInput!==null){
+        html+="<div class='block ok'><strong>总件数</strong>：<span class='num'>"+totalInput+"</span>（以你填写为准；总格以高斯先验参与加权）。</div>";
+      } else if(totalFromGridAvg){
+        html+="<div class='block ok'><strong>总件数</strong>：总格 ÷ 全藏品均格 ≈ <span class='num'>"+f(totalInferRatio)+"</span>；候选件数 <span class='num'>"+totalList.join("、")+"</span>（高斯先验已按偏差加权，不再坍缩为单值）。</div>";
+      } else if(totalFromGridModelAvg){
+        html+="<div class='block ok'><strong>总件数</strong>：仅填总格，区域档爆率 × 轮廓均格 ≈ <span class='num'>"+f(avgAllModel)+"</span> 每件（绿白/蓝/紫/金/红模型 ≈ <span class='num'>"+f(avgGridGwModel)+" / "+f(avgGridBlueModel)+" / "+f(avgGridPurpleModel)+" / "+f(avgGridGoldModel)+" / "+f(avgGridRedModel)+"</span>）；总格 ÷ 均格 ≈ <span class='num'>"+f(totalInferRatio)+"</span>；候选 <span class='num'>"+totalList.join("、")+"</span>。</div>";
+      } else {
+        html+="<div class='block'><strong>总件数</strong>：未填且无总格，按默认 <span class='num'>30</span> 件。</div>";
+      }
+      var residualHint = (totalGridAll!==null) ? buildGridResidualHint(totalGridAll) : null;
+      if(residualHint){
+        html+="<div class='block'><strong>联动扣格提示</strong>：总格 <span class='num'>"+f(totalGridAll)+"</span>；已占格约 <span class='num'>"+f(residualHint.knownGrid)+"</span>（实填 <span class='num'>"+f(residualHint.knownByInput)+"</span> + 估算 <span class='num'>"+f(residualHint.knownByEstimate)+"</span>）；剩余约 <span class='num'>"+f(residualHint.remainGrid)+"</span>。已用：<span class='num'>"+residualHint.detailText+"</span>。</div>";
+      }
+      if(gwInput===null){
+        html+="<div class='block ok'><strong>绿白总数自动推断</strong>：期望约 <span class='num'>"+f(gwMuShown)+"</span>，枚举区间 <span class='num'>"+gwCandidatesShown[0]+" ~ "+gwCandidatesShown[gwCandidatesShown.length-1]+"</span>"+(gwGrid!==null?"（已结合绿白总格）":"")+(gwAvgInput!==null?"（已结合绿白均格）":"")+"。</div>";
+      } else {
+        html+="<div class='block ok'><strong>绿白总数</strong>：<span class='num'>"+gwInput+"</span>（手动输入）"+(gwGrid!==null?"；绿白总格：<span class='num'>"+gwGrid+"</span>":"")+(gwAvgInput!==null?"；绿白均格：<span class='num'>"+gwAvgInput+"</span>":"")+"</div>";
+      }
+      if(totalGridTarget!==null){
+        html+="<div class='block'><strong>全局格数约束</strong>：目标总格 <span class='num'>"+f(totalGridTarget)+"</span>（已作为自适应高斯先验注入每个组合的 logw，σ 随未填颜色数量自适应；3.5σ 之外硬剪枝）"+(avgGridAll!==null&&totalGridAll===null?"（由全藏品均格推导）":"")+"。</div>";
+      }
+      if(inferredRedGrid!==null){
+        html+="<div class='block ok'><strong>红总格自动反推</strong>：红总格 = 全藏品总格 - 绿白总格 - 蓝总格 - 紫总格 - 金总格 = <span class='num'>"+f(inferredRedGrid)+"</span>。</div>";
+      }
+      var gwShowAvg=(gwAvgInput!==null&&isFinite(gwAvgInput))?gwAvgInput:avgGridGwModel;
+      html+="<p class='hint'>估格均值：绿白/蓝/紫/金/红 ≈ <span class='num'>"+f(gwShowAvg)+" / "+f(avgGridBlueModel)+" / "+f(avgGridPurpleModel)+" / "+f(avgGridGoldModel)+" / "+f(avgGridRedModel)+"</span>"+(gwAvgInput===null||!isFinite(gwAvgInput)?"（绿白借用蓝品轮廓）":"")+"。</p>";
+      html+="<div class='block ok'><strong>可行组合数</strong>：<span class='num'>"+combos.length+"</span>"+(sdInner>0?"；品质内合计 sd ≈ <span class='num'>"+f(sdInner)+"</span>":"")+"</div>";
+      if(smallCombo && uncertainList.length){
+        html+="<div class='block warn'><strong>可行组合偏少</strong>：仍有波动："+uncertainList.join("；")+"。必要时可放宽约束。</div>";
+      }
+      html+="<div class='block'><strong>概率加权估值</strong>：P50 <span class='num'>"+f(p50)+"</span> ｜ P25 <span class='num'>"+f(p25)+"</span> ｜ P75 <span class='num'>"+f(p75)+"</span> ｜ 期望 <span class='num'>"+f(expected)+"</span></div>";
+      html+="<div class='block warn'><strong>出价策略（安全系数 "+f(safety)+"）</strong><br/>保守 <span class='num'>"+f(bidC)+"</span> ｜ 均衡 <span class='num'>"+f(bidM)+"</span> ｜ 激进 <span class='num'>"+f(bidA)+"</span></div>";
+      html+="<table class='mini'><thead><tr><th>绿白</th><th>蓝</th><th>紫</th><th>金</th><th>红</th><th>概率</th><th>高品估值</th><th>整局估值</th><th>估计总格</th></tr></thead><tbody>";
+      var rowsArr=[];
+      for(i=0;i<Math.min(maxShow,combos.length);i++){
+        var c=combos[i];
+        rowsArr.push("<tr><td class='num'>"+c.gw+"</td><td class='num'>"+c.b+"</td><td class='num'>"+c.p+"</td><td class='num'>"+c.g+"</td><td class='num'>"+c.r+"</td><td class='num'>"+f(c.prob*100)+"%</td><td class='num'>"+f(c.highVal)+"</td><td class='num'>"+f(c.fullVal)+"</td><td class='num'>"+f(c.totalGridEst)+"</td></tr>");
+      }
+      html+=rowsArr.join("")+"</tbody></table>";
+      if(totalGridTarget!==null){
+        html+="<p class='hint'>总格约束已升级为自适应高斯先验：未填 grid 的颜色越多 σ 越大，填得越细 σ 越小；总格/均格对 P50 与出价区间的影响更锐利。</p>";
+      }
+      if(ITEM_DB.loaded){
+        var topN=Math.min(3, combos.length), t;
+        html+="<div class='block'><strong>物品级可能组成（价格拟合）</strong>";
+        for(t=0;t<topN;t++){
+          var cc=combos[t];
+          // 物品拟合仍用 P50 作 target（P50 更接近"个体最可能值"），均值对 k 件求和更合适
+          var cb=composeItemsForQuality(3, cc.b, cc.b*priceB_p50, impliedTargetGridForCompose(cc.b, gridBlueInput, avgBlueInput), map.nest);
+          var cp=composeItemsForQuality(4, cc.p, cc.p*priceP_p50, impliedTargetGridForCompose(cc.p, gridPurpleInput, avgPurpleInput), map.nest);
+          var cg=composeItemsForQuality(5, cc.g, cc.g*priceG_p50, impliedTargetGridForCompose(cc.g, gridGoldInput, avgGoldInput), map.nest);
+          var cr=composeItemsForQuality(6, cc.r, cc.r*priceR_p50, impliedTargetGridForCompose(cc.r, gridRedInput, avgRedInput), map.nest);
+          html+="<p class='hint' style='margin-top:.35rem;'><strong>组合 "+(t+1)+"：</strong><span class='num'>"+cc.gw+"/"+cc.b+"/"+cc.p+"/"+cc.g+"/"+cc.r+"</span>（绿白/蓝/紫/金/红，概率 "+f(cc.prob*100)+"%）</p>";
+          function line(label, comp){
+            if(!comp) return label+"：—";
+            if(comp.noGridData) return label+"：物品库缺少可信占格数据，无法对总格 "+comp.targetGrid+" 做硬匹配";
+            if(comp.noExactGrid) return label+"：无可行物品组合（要求总格 "+comp.targetGrid+" 的硬匹配）";
+            var parts=[], j;
+            for(j=0;j<Math.min(3, comp.items.length);j++){ parts.push(comp.items[j].name+"×"+comp.items[j].count); }
+            var gridInfo = comp.gridUnknown ? "拟合总格 未知" : ("拟合总格 "+f(comp.grid));
+            if(comp.gridUnknown) gridInfo += "（该组合含占格未知物品）";
+            return label+"："+parts.join("、")+"（拟合价值 "+f(comp.sum)+"，"+gridInfo+(DROP_ITEM_WEIGHTS.loaded?"，drop 权重参与":"")+"）";
+          }
+          html+="<p class='hint'>"+line("蓝(Q3)", cb)+"<br/>"+line("紫(Q4)", cp)+"<br/>"+line("金(Q5)", cg)+"<br/>"+line("红(Q6)", cr)+"</p>";
+        }
+        html+="</div>";
+      } else {
+        html+="<p class='hint'>未加载物品数据：当前只做品质级组合估价。请上传 `calculator_data_merged.csv` 启用物品级可能组成。</p>";
+      }
+      html+="<p class='hint'>估值范围（所有可行组合）：<span class='num'>"+f(minV)+" ~ "+f(maxV)+"</span>。</p>";
+      if(warns.length){ err.textContent=uniq(warns).join("\n"); err.style.display="block"; }
+      content.innerHTML=html;
+    }
+    ["totalCount","totalGridAll","avgGridAll","gwCount","gwGrid","avgGw","safety","maxShow","countBlue","gridBlue","avgBlue","countPurple","gridPurple","avgPurple","countGold","gridGold","avgGold","countRed","gridRed","avgRed"].forEach(function(id){
+      var el = $id(id);
+      if (!el) return;
+      el.addEventListener("input", scheduleRecalc);
+      el.addEventListener("blur", function(){
+        if (_recalcDebounceTimer != null) { clearTimeout(_recalcDebounceTimer); _recalcDebounceTimer = null; }
+        recalc();
+      });
+    });
+    $id("clearConstraintsBtn").addEventListener("click", function(){
+      ["totalGridAll","avgGridAll","gwCount","gwGrid","avgGw","countBlue","gridBlue","avgBlue","countPurple","gridPurple","avgPurple","countGold","gridGold","avgGold","countRed","gridRed","avgRed"].forEach(function(id){
+        $id(id).value="";
+      });
+      recalc();
+    });
+    $id("tier").addEventListener("change", function(){ fillMapPick($id("tier").value); });
+    $id("mapPick").addEventListener("change", function(){ lastMapByTier[$id("tier").value]=$id("mapPick").value; recalc(); });
+    $id("mergedCsvFile").addEventListener("change", function(e){
+      var fobj = e.target.files && e.target.files[0];
+      if(!fobj) return;
+      var rd = new FileReader();
+      rd.onload = function(){
+        if(loadMergedCsvText(String(rd.result||""))) recalc();
+        else $id("mergedDataStatus").textContent="合并数据：格式不正确，请上传 `calculator_data_merged.csv`。";
+      };
+      rd.readAsText(fobj, "utf-8");
+    });
+    (function autoLoadMergedCsv(){
+      fetch("./calculator_data_merged.csv")
+        .then(function(r){ return r.ok?r.text():Promise.reject(); })
+        .then(function(t){
+          if(loadMergedCsvText(t)) recalc();
+          else $id("mergedDataStatus").textContent="合并数据：自动读取成功但格式不匹配，请重新导出。";
+        })
+        .catch(function(){
+          $id("mergedDataStatus").textContent="合并数据：自动读取失败，可手动上传 `calculator_data_merged.csv`。";
+          Promise.all([
+            fetch("./item_prices.csv").then(function(r){ return r.ok?r.text():Promise.reject(); }),
+            fetch("./drop_table_weights.csv").then(function(r){ return r.ok?r.text():Promise.reject(); })
+          ]).then(function(arr){
+            loadItemCsvText(arr[0]);
+            loadDropCsvText(arr[1]);
+            recalc();
+          }).catch(function(){});
+        });
+    })();
+    (function initCalculator(){
+      var disp = $id("calcDisplay"), keys = $id("calcKeys");
+      if(!disp || !keys) return;
+      var acc = null, cur = "0", op = null, newNum = true;
+      function show(){ disp.textContent = cur; }
+      function curNum(){ var n=parseFloat(cur); return isNaN(n)?0:n; }
+      function clearAll(){ acc=null; cur="0"; op=null; newNum=true; show(); }
+      function calc(){
+        if(acc===null||op===null) return;
+        var b=curNum(), a=acc, r;
+        if(op==="+") r=a+b; else if(op==="-") r=a-b; else if(op==="*") r=a*b; else r=(b===0?NaN:a/b);
+        if(!isFinite(r)){ cur="错误"; acc=null; op=null; newNum=true; show(); return; }
+        cur=String(Math.round(r*100000000)/100000000); newNum=true; acc=null; op=null; show();
+      }
+      keys.addEventListener("click", function(e){
+        var b = e.target.closest("button[data-act]"); if(!b) return;
+        var act = b.getAttribute("data-act"), v = b.getAttribute("data-val");
+        if(act==="clear"){ clearAll(); return; }
+        if(act==="ce"){ cur="0"; newNum=true; show(); return; }
+        if(cur==="错误" && (act==="digit"||act==="dot")){ cur="0"; }
+        if(act==="digit"){ if(newNum){ cur=v; newNum=false; } else { cur = (cur==="0"?v:cur+v); } show(); return; }
+        if(act==="dot"){ if(newNum){ cur="0."; newNum=false; } else if(cur.indexOf(".")<0){ cur += "."; } show(); return; }
+        if(act==="sqrt"){ var n=curNum(); if(n<0){ cur="错误"; newNum=true; show(); return; } cur=String(Math.sqrt(n)); newNum=true; show(); return; }
+        if(act==="op"){ if(acc!==null && op!==null && !newNum) calc(); acc=curNum(); op=v; newNum=true; return; }
+        if(act==="eq"){ calc(); }
+      });
+      show();
+    })();
+    (function initIntegerCalculator(){
+      var inp=$id("intCalcInput"), btn=$id("intCalcRun"), out=$id("intCalcOut");
+      if(!inp||!btn||!out) return;
+      function gcd(a,b){ while(b!==0){ var t=a%b; a=b; b=t; } return Math.abs(a); }
+      function parseDecimalToFraction(raw){
+        var s=String(raw||"").trim();
+        if(!s) return null;
+        if(!/^[+-]?\d+(\.\d+)?$/.test(s)) return null;
+        var neg=s.charAt(0)==="-";
+        if(neg||s.charAt(0)==="+") s=s.slice(1);
+        var p=s.split("."), intPart=p[0]||"0", fracPart=p[1]||"", den=1, i;
+        for(i=0;i<fracPart.length;i++) den*=10;
+        var num=parseInt(intPart+fracPart,10);
+        if(neg) num=-num;
+        var g=gcd(Math.abs(num), den);
+        return {num:num/g, den:den/g};
+      }
+      function render(){
+        var fr=parseDecimalToFraction(inp.value);
+        if(!fr){ out.textContent="请输入合法数字（如 2.33、0.125、7）。"; return; }
+        if(fr.num===0){ out.textContent="0 乘任意数都等于整数 0（示例：×1=0，×2=0，×3=0）。"; return; }
+        var exactBase=fr.den/ gcd(Math.abs(fr.num), fr.den);
+        var target=parseFloat(String(inp.value).trim());
+        var roundedHits=[], d;
+        for(d=1; d<=20; d++){
+          var n=Math.round(target*d);
+          var x=(n/d)*100, tk=Math.round(target*100);
+          if(Math.round(x)===tk || Math.floor(x+1e-9)===tk){
+            roundedHits.push({m:d,v:n,err:Math.abs(target*d-n)});
+          }
+        }
+        roundedHits.sort(function(a,b){
+          if(Math.abs(a.err-b.err)>1e-12) return a.err-b.err;
+          return a.m-b.m;
+        });
+        var picks=[], used={}, i;
+        for(i=0;i<roundedHits.length && picks.length<3;i++){
+          if(used[roundedHits[i].m]) continue;
+          used[roundedHits[i].m]=1;
+          picks.push(roundedHits[i]);
+        }
+        var approx=[], j;
+        for(j=0;j<picks.length;j++) approx.push("×"+picks[j].m+"≈"+picks[j].v);
+        var exactVal=(fr.num*exactBase)/fr.den;
+        if(approx.length){
+          out.textContent="按两位小数反推（四舍五入/截断）："+approx.join("；")+"。精确小数倍率：×"+exactBase+"="+exactVal+"。";
+        } else {
+          out.textContent="精确小数倍率：×"+exactBase+"="+exactVal+"。";
+        }
+      }
+      btn.addEventListener("click", render);
+      inp.addEventListener("keydown", function(e){ if(e.key==="Enter") render(); });
+    })();
+    fillMapPick($id("tier").value);
+  })();
+  </script>
+</body>
+</html>

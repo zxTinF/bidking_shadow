@@ -1,0 +1,471 @@
+
+
+
+
+
+
+
+(S2C_37_game_next_round_notify){
+    "GameData": {
+        "Uid": "2105:414722427469816",
+        "MapId": 2105,
+        "Round": 3,
+        "HeroSkillLog": [
+            {
+                "SkillCid": 1001034,
+                "HeroCid": 103,
+                "CastTime": "1777288801879",
+                "HitBoxList": [
+                    {
+                        "BoxId": 42,
+                        "ItemUid": "414722427470152",
+                        "ItemSlotType": 11,
+                        "ItemQuility": 1
+                    },
+                    {
+                        "BoxId": 59,
+                        "ItemUid": "414722427470157",
+                        "ItemSlotType": 11,
+                        "ItemQuility": 1
+                    },
+                    {
+                        "BoxId": 5,
+                        "ItemUid": "414722427470137",
+                        "ItemSlotType": 11,
+                        "ItemQuility": 1
+                    },
+                    {
+                        "BoxId": 57,
+                        "ItemUid": "414722427470155",
+                        "ItemSlotType": 13,
+                        "ItemQuility": 1
+                    },
+                    {
+                        "BoxId": 35,
+                        "ItemUid": "414722427470147",
+                        "ItemSlotType": 11,
+                        "ItemQuility": 1
+                    },
+                    {
+                        "BoxId": 62,
+                        "ItemUid": "414722427470158",
+                        "ItemSlotType": 12,
+                        "ItemQuility": 1
+                    },
+                    {
+                        "BoxId": 30,
+                        "ItemUid": "414722427470145",
+                        "ItemSlotType": 22,
+                        "ItemQuility": 1
+                    },
+                    {
+                        "BoxId": 20,
+                        "ItemUid": "414722427470142",
+                        "ItemSlotType": 11,
+                        "ItemQuility": 1
+                    },
+                    {
+                        "BoxId": 2,
+                        "ItemUid": "414722427470135",
+                        "ItemSlotType": 13,
+                        "ItemQuility": 1
+                    },
+                    {
+                        "BoxId": 58,
+                        "ItemUid": "414722427470156",
+                        "ItemSlotType": 11,
+                        "ItemQuility": 1
+                    },
+                    {
+                        "ItemUid": "414722427470133",
+                        "ItemSlotType": 11,
+                        "ItemQuility": 1
+                    },
+                    {
+                        "BoxId": 10,
+                        "ItemUid": "414722427470141",
+                        "ItemSlotType": 11,
+                        "ItemQuility": 1
+                    }
+                ],
+                "Uid": "414722427470167"
+            },
+            {
+                "SkillCid": 1001033,
+                "HeroCid": 103,
+                "CastTime": "1777288824963",
+                "CastRound": 1,
+                "HitBoxList": [
+                    {
+                        "BoxId": 63,
+                        "ItemUid": "414722427470159",
+                        "ItemSlotType": 11,
+                        "ItemQuility": 2
+                    },
+                    {
+                        "BoxId": 21,
+                        "ItemUid": "414722427470143",
+                        "ItemSlotType": 11,
+                        "ItemQuility": 2
+                    },
+                    {
+                        "BoxId": 15,
+                        "ItemUid": "414722427470140",
+                        "ItemSlotType": 22,
+                        "ItemQuility": 2
+                    },
+                    {
+                        "BoxId": 52,
+                        "ItemUid": "414722427470154",
+                        "ItemSlotType": 11,
+                        "ItemQuility": 2
+                    },
+                    {
+                        "BoxId": 32,
+                        "ItemUid": "414722427470146",
+                        "ItemSlotType": 11,
+                        "ItemQuility": 2
+                    },
+                    {
+                        "BoxId": 36,
+                        "ItemUid": "414722427470148",
+                        "ItemSlotType": 11,
+                        "ItemQuility": 2
+                    },
+                    {
+                        "BoxId": 38,
+                        "ItemUid": "414722427470150",
+                        "ItemSlotType": 22,
+                        "ItemQuility": 2
+                    },
+                    {
+                        "BoxId": 7,
+                        "ItemUid": "414722427470139",
+                        "ItemSlotType": 33,
+                        "ItemQuility": 2
+                    }
+                ],
+                "Uid": "424342807220167"
+            },
+            {
+                "SkillCid": 1001032,
+                "HeroCid": 103,
+                "CastTime": "1777288850963",
+                "CastRound": 2,
+                "HitBoxList": [
+                    {
+                        "BoxId": 80,
+                        "ItemUid": "414722427470162",
+                        "ItemSlotType": 41,
+                        "ItemQuility": 3
+                    },
+                    {
+                        "BoxId": 68,
+                        "ItemUid": "414722427470161",
+                        "ItemSlotType": 22,
+                        "ItemQuility": 3
+                    },
+                    {
+                        "BoxId": 3,
+                        "ItemUid": "414722427470136",
+                        "ItemSlotType": 22,
+                        "ItemQuility": 3
+                    },
+                    {
+                        "BoxId": 23,
+                        "ItemUid": "414722427470144",
+                        "ItemSlotType": 24,
+                        "ItemQuility": 3
+                    },
+                    {
+                        "BoxId": 37,
+                        "ItemUid": "414722427470149",
+                        "ItemSlotType": 12,
+                        "ItemQuility": 3
+                    },
+                    {
+                        "BoxId": 6,
+                        "ItemUid": "414722427470138",
+                        "ItemSlotType": 11,
+                        "ItemQuility": 3
+                    }
+                ],
+                "Uid": "424342807227716"
+            },
+            {
+                "SkillCid": 1001031,
+                "HeroCid": 103,
+                "CastTime": "1777288882963",
+                "CastRound": 3,
+                "HitBoxList": [
+                    {
+                        "BoxId": 50,
+                        "ItemUid": "414722427470153",
+                        "ItemSlotType": 22,
+                        "ItemQuility": 4
+                    },
+                    {
+                        "BoxId": 64,
+                        "ItemUid": "414722427470160",
+                        "ItemSlotType": 23,
+                        "ItemQuility": 4
+                    },
+                    {
+                        "BoxId": 1,
+                        "ItemUid": "414722427470134",
+                        "ItemSlotType": 12,
+                        "ItemQuility": 4
+                    },
+                    {
+                        "BoxId": 45,
+                        "ItemUid": "414722427470151",
+                        "ItemSlotType": 22,
+                        "ItemQuility": 4
+                    }
+                ],
+                "Uid": "424342807237093"
+            }
+        ],
+        "MapSkillLog": [
+            {
+                "SkillCid": 200002,
+                "MapCid": 2105,
+                "CastTime": "1777288801879",
+                "Uid": "414722427470164"
+            },
+            {
+                "SkillCid": 200032,
+                "MapCid": 2105,
+                "CastTime": "1777288824963",
+                "CastRound": 1,
+                "AllHitItemAvgPrice": 470.333344,
+                "Uid": "424342807220164"
+            },
+            {
+                "SkillCid": 200021,
+                "MapCid": 2105,
+                "CastTime": "1777288850963",
+                "CastRound": 2,
+                "HitItemIndex": 2,
+                "HitBoxList": [
+                    {
+                        "BoxId": 10,
+                        "ItemUid": "414722427470141",
+                        "ItemCid": 1041008,
+                        "ItemSlotType": 11,
+                        "ItemType": [
+                            104,
+                            101
+                        ],
+                        "ItemQuility": 1,
+                        "ItemPrice": 184,
+                        "ItemBoxIndex": 1
+                    },
+                    {
+                        "BoxId": 45,
+                        "ItemUid": "414722427470151",
+                        "ItemCid": 1094006,
+                        "ItemSlotType": 22,
+                        "ItemType": [
+                            109
+                        ],
+                        "ItemQuility": 4,
+                        "ItemPrice": 6540,
+                        "ItemBoxIndex": 4
+                    }
+                ],
+                "AllHitItemAvgPrice": 3362,
+                "AllHitBoxAvgPrice": 1344.8,
+                "AllHitItemAvgBoxIndex": 2.5,
+                "HitItemTotalPrice": 6724,
+                "Uid": "424342807227713",
+                "TotalHitBoxIndex": 5
+            },
+            {
+                "SkillCid": 200005,
+                "MapCid": 2105,
+                "CastTime": "1777288882963",
+                "CastRound": 3,
+                "AllHitBoxAvgPrice": 498.4054,
+                "Uid": "424342807237090",
+                "HitItemTypeList": [
+                    104,
+                    103,
+                    110,
+                    108,
+                    101,
+                    107,
+                    106,
+                    109
+                ]
+            }
+        ],
+        "ItemSkillLog": [
+            {
+                "SkillCid": 2001,
+                "ItemCid": 100151,
+                "CastTime": "1777288838268",
+                "CastRound": 1,
+                "HitBoxList": [
+                    {
+                        "BoxId": 42,
+                        "ItemUid": "414722427470152",
+                        "ItemSlotType": 11
+                    },
+                    {
+                        "BoxId": 3,
+                        "ItemUid": "414722427470136",
+                        "ItemSlotType": 22
+                    },
+                    {
+                        "BoxId": 30,
+                        "ItemUid": "414722427470145",
+                        "ItemSlotType": 22
+                    },
+                    {
+                        "BoxId": 6,
+                        "ItemUid": "414722427470138",
+                        "ItemSlotType": 11
+                    },
+                    {
+                        "BoxId": 21,
+                        "ItemUid": "414722427470143",
+                        "ItemSlotType": 11
+                    },
+                    {
+                        "BoxId": 37,
+                        "ItemUid": "414722427470149",
+                        "ItemSlotType": 12
+                    },
+                    {
+                        "BoxId": 10,
+                        "ItemUid": "414722427470141",
+                        "ItemSlotType": 11
+                    },
+                    {
+                        "BoxId": 32,
+                        "ItemUid": "414722427470146",
+                        "ItemSlotType": 11
+                    },
+                    {
+                        "ItemUid": "414722427470133",
+                        "ItemSlotType": 11
+                    },
+                    {
+                        "BoxId": 15,
+                        "ItemUid": "414722427470140",
+                        "ItemSlotType": 22
+                    }
+                ],
+                "Uid": "424342807223940"
+            },
+            {
+                "SkillCid": 2004,
+                "ItemCid": 100154,
+                "CastTime": "1777288870129",
+                "CastRound": 2,
+                "HitBoxList": [
+                    {
+                        "BoxId": 10,
+                        "ItemUid": "414722427470141",
+                        "ItemSlotType": 11
+                    },
+                    {
+                        "BoxId": 3,
+                        "ItemUid": "414722427470136",
+                        "ItemSlotType": 22
+                    },
+                    {
+                        "BoxId": 23,
+                        "ItemUid": "414722427470144",
+                        "ItemSlotType": 24
+                    },
+                    {
+                        "BoxId": 6,
+                        "ItemUid": "414722427470138",
+                        "ItemSlotType": 11
+                    },
+                    {
+                        "BoxId": 80,
+                        "ItemUid": "414722427470162",
+                        "ItemSlotType": 41
+                    },
+                    {
+                        "BoxId": 36,
+                        "ItemUid": "414722427470148",
+                        "ItemSlotType": 11
+                    }
+                ],
+                "Uid": "424342807233405"
+            }
+        ],
+        "NextRoundTime": "1777288922",
+        "ServerTime": "1777288882"
+    }
+}
+
+
+
+(S2C_39_game_use_item){
+    "ItemSkillLog": [
+        {
+            "SkillCid": 2001,
+            "ItemCid": 100151,
+            "CastTime": "1777288838268",
+            "CastRound": 1,
+            "HitBoxList": [
+                {
+                    "BoxId": 32,
+                    "ItemUid": "414722427470146",
+                    "ItemSlotType": 11
+                }
+            ],
+            "Uid": "424342807223940"
+        }
+    ]
+}
+
+
+S2C39GameUseItem : (S2C_39_game_use_item){
+    "ItemSkillLog": [
+        {
+            "SkillCid": 2004,
+            "ItemCid": 100154,
+            "CastTime": "1777288870129",
+            "CastRound": 2,
+            "HitBoxList": [
+                {
+                    "BoxId": 36,
+                    "ItemUid": "414722427470148",
+                    "ItemSlotType": 11
+                },
+                {
+                    "BoxId": 10,
+                    "ItemUid": "414722427470141",
+                    "ItemSlotType": 11
+                },
+                {
+                    "BoxId": 3,
+                    "ItemUid": "414722427470136",
+                    "ItemSlotType": 22
+                },
+                {
+                    "BoxId": 23,
+                    "ItemUid": "414722427470144",
+                    "ItemSlotType": 24
+                },
+                {
+                    "BoxId": 6,
+                    "ItemUid": "414722427470138",
+                    "ItemSlotType": 11
+                },
+                {
+                    "BoxId": 80,
+                    "ItemUid": "414722427470162",
+                    "ItemSlotType": 41
+                }
+            ],
+            "Uid": "424342807233405"
+        }
+    ]
+}
