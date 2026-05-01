@@ -727,7 +727,7 @@ class GridWindow:
         live_tag = "  ● LIVE" if self._log_path else ""
         self.root = tk.Tk()
         self.root.title(
-            f"BidKing 物品格局  —  对局 {self.state.uid}  "
+            f"BidKing 鉴影可视化"
             f"第 {self.state.current_round} 回合{live_tag}"
         )
         self.root.configure(bg='#1a1a2e')

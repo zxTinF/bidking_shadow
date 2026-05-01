@@ -55,7 +55,7 @@ def _open_grid(log_path: str, csv_path: str, tail: bool) -> None:
 def _show_start_page(default_log: str, csv_path: str) -> None:
     """exe/无参数启动页：选择日志路径和实时/回放模式。"""
     root = tk.Tk()
-    root.title("BidKing 物品格局 - 启动")
+    root.title("BidKing 鉴影可视化 - 启动")
     root.configure(bg='#1a1a2e')
     root.resizable(False, False)
 
