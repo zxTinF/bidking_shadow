@@ -153,6 +153,29 @@ def print_all_items_snapshot(
     )
 
 
+def _format_skill_stats(ev: dict) -> str:
+    """格式化各类技能事件共用的聚合统计字段。"""
+    stats_parts = []
+    if ev.get('hit_count') is not None:
+        stats_parts.append(f"命中{ev['hit_count']}件")
+    if ev.get('total_hit') is not None:
+        stats_parts.append(f"影响格数:{ev['total_hit']}")
+    if ev.get('avg_price') is not None:
+        stats_parts.append(f"均价:{ev['avg_price']:.1f}")
+    if ev.get('avg_box_price') is not None:
+        stats_parts.append(f"每格均价:{ev['avg_box_price']:.2f}")
+    if ev.get('total_price') is not None:
+        stats_parts.append(f"总价:{ev['total_price']}")
+    if ev.get('avg_box_count') is not None:
+        stats_parts.append(f"件均格数:{ev['avg_box_count']:.1f}")
+    if ev.get('item_types'):
+        type_str = " / ".join(
+            CATEGORY_NAMES.get(t, str(t)) for t in ev['item_types']
+        )
+        stats_parts.append(f"类别:[{type_str}]")
+    return "  " + "  ".join(stats_parts) if stats_parts else ""
+
+
 # ─── 事件批量输出 ──────────────────────────────────────────────────────────
 
 def print_events(
@@ -175,7 +198,10 @@ def print_events(
             cr = ev.get('cast_round')
             round_tag = f"第{cr}回合执行" if cr is not None else "初始扫描"
             q_tag = f"品质<={q}" if q else ""
-            print(f"\n  [英雄技能 {skill_cid}] ({q_tag}, {round_tag})", file=out)
+            desc_parts = [part for part in (q_tag, round_tag) if part]
+            desc = ", ".join(desc_parts)
+            stats_str = _format_skill_stats(ev)
+            print(f"\n  [英雄技能 {skill_cid}] ({desc}){stats_str}", file=out)
             for uid in ev['uids']:
                 k = state.items.get(uid)
                 if k:
@@ -188,25 +214,7 @@ def print_events(
             round_tag = f"第{cr}回合" if cr is not None else "初始"
             desc = MAP_SKILL_DESC.get(skill_cid, "未知地图技能")
 
-            stats_parts = []
-            if ev.get('hit_count') is not None:
-                stats_parts.append(f"命中{ev['hit_count']}件")
-            if ev.get('total_hit') is not None:
-                stats_parts.append(f"影响格数:{ev['total_hit']}")
-            if ev.get('avg_price') is not None:
-                stats_parts.append(f"均价:{ev['avg_price']:.1f}")
-            if ev.get('avg_box_price') is not None:
-                stats_parts.append(f"每格均价:{ev['avg_box_price']:.2f}")
-            if ev.get('total_price') is not None:
-                stats_parts.append(f"总价:{ev['total_price']}")
-            if ev.get('avg_box_count') is not None:
-                stats_parts.append(f"件均格数:{ev['avg_box_count']:.1f}")
-            if ev.get('item_types'):
-                type_str = " / ".join(
-                    CATEGORY_NAMES.get(t, str(t)) for t in ev['item_types']
-                )
-                stats_parts.append(f"类别:[{type_str}]")
-            stats_str = "  " + "  ".join(stats_parts) if stats_parts else ""
+            stats_str = _format_skill_stats(ev)
 
             print(f"\n  [地图技能 {skill_cid}] ({round_tag}) {desc}{stats_str}", file=out)
 
@@ -221,9 +229,10 @@ def print_events(
             cr = ev.get('cast_round', '?')
             cat_name = CATEGORY_NAMES.get(ev.get('category', 0), "")
             cat_tag = f"  类别:{cat_name}" if cat_name else ""
+            stats_str = _format_skill_stats(ev)
             print(
                 f"\n  [道具 {ev['item_cid']} {ev['tool_name']}] 第{cr}回合使用"
-                f"{cat_tag} => 命中{len(ev['uids'])}件:",
+                f"{cat_tag}{stats_str} => 命中{len(ev['uids'])}件:",
                 file=out,
             )
             for uid in ev['uids']:

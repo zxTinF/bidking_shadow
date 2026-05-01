@@ -22,6 +22,19 @@ from .constants import (
 from .models import GameState
 
 
+def _common_skill_stats(entry: dict) -> dict:
+    """提取技能日志里跨英雄/地图/道具共用的统计字段。"""
+    return {
+        'hit_count':     entry.get('HitItemIndex'),
+        'total_hit':     entry.get('TotalHitBoxIndex'),
+        'avg_price':     entry.get('AllHitItemAvgPrice'),
+        'avg_box_price': entry.get('AllHitBoxAvgPrice'),
+        'total_price':   entry.get('HitItemTotalPrice'),
+        'avg_box_count': entry.get('AllHitItemAvgBoxIndex'),
+        'item_types':    entry.get('HitItemTypeList', []),
+    }
+
+
 def process_hero_skill_log(
     logs: List[dict],
     state: GameState,
@@ -30,8 +43,9 @@ def process_hero_skill_log(
     """
     处理 HeroSkillLog（艾莎英雄扫描技能）。
 
-    根据 SkillCid 确定品质上限，更新 HitBoxList 中每件物品的
-    shape / quality / item_cid 等字段。
+    对所有 SkillCid（包括未收录的未知技能）尽可能提取 HitBoxList 中的
+    shape / quality / categories / item_cid / price 等字段；已知艾莎技能额外
+    用 SkillCid 补充品质并记录负向品质约束。
 
     事件字段:
         type         : 'hero_skill'
@@ -39,6 +53,7 @@ def process_hero_skill_log(
         quality      : 品质上限（None=未知技能）
         cast_round   : 发生回合（None=初始扫描）
         uids         : 本次扫描到的物品 UID 列表
+        hit_count 等 : 日志中的聚合统计字段（若存在）
     """
     events = []
     for entry in logs:
@@ -62,14 +77,16 @@ def process_hero_skill_log(
         if quality is not None:
             state.record_scan('quality', quality, set(revealed_uids))
 
-        if revealed_uids:
-            events.append({
-                'type': 'hero_skill',
-                'skill_cid': skill_cid,
-                'quality': quality,
-                'cast_round': cr,
-                'uids': revealed_uids,
-            })
+        ev = {
+            'type': 'hero_skill',
+            'skill_cid': skill_cid,
+            'quality': quality,
+            'cast_round': cr,
+            'uids': revealed_uids,
+        }
+        ev.update(_common_skill_stats(entry))
+        if revealed_uids or any(v is not None and v != [] for v in _common_skill_stats(entry).values()):
+            events.append(ev)
     return events
 
 
@@ -112,14 +129,8 @@ def process_map_skill_log(
             'cast_round': cr,
             'raw': entry,
             'uids': [],
-            'hit_count':     entry.get('HitItemIndex'),
-            'total_hit':     entry.get('TotalHitBoxIndex'),
-            'avg_price':     entry.get('AllHitItemAvgPrice'),
-            'avg_box_price': entry.get('AllHitBoxAvgPrice'),
-            'total_price':   entry.get('HitItemTotalPrice'),
-            'avg_box_count': entry.get('AllHitItemAvgBoxIndex'),
-            'item_types':    entry.get('HitItemTypeList', []),
         }
+        ev.update(_common_skill_stats(entry))
 
         force_quality = MAP_SKILL_FORCE_QUALITY.get(skill_cid)
         for box in entry.get('HitBoxList', []):
@@ -170,8 +181,10 @@ def process_item_skill_log(
 
         skill_cid = entry.get('SkillCid', 0)
         item_cid  = entry.get('ItemCid', 0)
-        category  = SKILL_TO_CATEGORY.get(skill_cid)
         tool_info = ITEM_TOOLS.get(item_cid)
+        category  = SKILL_TO_CATEGORY.get(skill_cid)
+        if category is None and tool_info:
+            category = tool_info[2]
         revealed_uids = []
 
         for box in entry.get('HitBoxList', []):
@@ -192,7 +205,7 @@ def process_item_skill_log(
         if category is not None:
             state.record_scan('category', category, set(revealed_uids))
 
-        events.append({
+        ev = {
             'type':       'item_skill',
             'skill_cid':  skill_cid,
             'item_cid':   item_cid,
@@ -201,5 +214,7 @@ def process_item_skill_log(
             'cast_round': cr,
             'uids':       revealed_uids,
             'event_uid':  event_uid,
-        })
+        }
+        ev.update(_common_skill_stats(entry))
+        events.append(ev)
     return events

@@ -30,7 +30,12 @@ from typing import Dict, List, Optional, Tuple
 
 from .constants import CATEGORY_NAMES, fmt_shape
 from .handlers import handle_s2c33, handle_s2c37, handle_s2c39, handle_s2c45
-from .item_db import candidate_probabilities, probability_source_label, query_item
+from .item_db import (
+    candidate_probabilities,
+    map_category_ratios,
+    probability_source_label,
+    query_item,
+)
 from .log_parser import extract_event
 from .models import CsvItem, GameState, ItemKnowledge
 
@@ -248,6 +253,10 @@ class GridWindow:
         k: ItemKnowledge,
     ) -> Tuple[Optional[CsvItem], int, bool, Optional[float], str]:
         """按当前网格显示约束查询候选，包含手动尺寸、幽灵框和最大尺寸推断。"""
+        manual_item = self._valid_manual_confirm_item(uid, k)
+        if manual_item is not None:
+            return manual_item, 1, True, float(manual_item.base_value), "手动确认"
+
         effective_shape = k.shape
         max_shape: Optional[Tuple[int, int]] = None
 
@@ -268,6 +277,24 @@ class GridWindow:
             map_category_weights=self._map_category_weights,
             map_id=self.state.map_id,
         )
+
+    def _valid_manual_confirm_item(self, uid: str, k: ItemKnowledge) -> Optional[CsvItem]:
+        """
+        返回当前仍然有效的手动确认候选；若已与新约束冲突会自动撤销。
+        冲突判定基于当前网格约束筛出的候选集合。
+        """
+        cid = k.manual_confirm_item_id
+        if not cid:
+            return None
+        item = self.csv_index.get(cid)
+        if item is None:
+            k.manual_confirm_item_id = None
+            return None
+        candidates = self._candidate_items_for_grid(uid, k)
+        if any(c.item_id == cid for c in candidates):
+            return item
+        k.manual_confirm_item_id = None
+        return None
 
     def _candidate_items_for_grid(self, uid: str, k: ItemKnowledge) -> List[CsvItem]:
         """返回与当前网格约束一致的候选物品列表。"""
@@ -311,6 +338,9 @@ class GridWindow:
 
     def _display_quality(self, uid: str, k: ItemKnowledge) -> Optional[int]:
         """返回用于显示的品质；候选品质唯一时也补齐显示颜色。"""
+        manual_item = self._valid_manual_confirm_item(uid, k)
+        if manual_item is not None:
+            return manual_item.quality
         if k.quality is not None:
             return k.quality
         candidates = self._candidate_items_for_grid(uid, k)
@@ -326,6 +356,9 @@ class GridWindow:
         """返回当前格子的精确价或期望价，用于高价值标识。"""
         if k.price is not None and k.item_cid:
             return float(k.price)
+        manual_item = self._valid_manual_confirm_item(uid, k)
+        if manual_item is not None:
+            return float(manual_item.base_value)
         best, _count, unique, est, _label = self._query_item_for_grid(uid, k)
         if best is None:
             return None
@@ -360,24 +393,60 @@ class GridWindow:
         item_count = 0
         q5_count = 0
         q6_count = 0
+        q5_cells = 0
+        q6_cells = 0
+        unknown_cells = 0
         for uid, k in item_rows:
             if k.box_id is None:
                 continue
             w, h = self._effective_shape_wh(uid, k)
-            total_cells += w * h
+            cells = w * h
+            total_cells += cells
             item_count += 1
             q = self._display_quality(uid, k)
             if q == 5:
                 q5_count += 1
+                q5_cells += cells
             elif q == 6:
                 q6_count += 1
+                q6_cells += cells
+            elif q is None:
+                unknown_cells += cells
 
         avg_cells = total_cells / item_count if item_count else 0.0
+        top_cats = ""
+        category_ratios = map_category_ratios(self.state.map_id)
+        if not category_ratios and self._map_category_weights:
+            # 回退：若没有地图根图数据，则使用传入的类别倍率入口。
+            total_weight = sum(
+                w for w in self._map_category_weights.values() if w > 0
+            )
+            if total_weight > 0:
+                category_ratios = {
+                    cid: w / total_weight
+                    for cid, w in self._map_category_weights.items()
+                    if w > 0
+                }
+        if category_ratios:
+            ranked = sorted(
+                category_ratios.items(),
+                key=lambda kv: kv[1],
+                reverse=True,
+            )
+            top_parts: List[str] = []
+            for cid, ratio in ranked[:3]:
+                pct = ratio * 100.0
+                cat_short = _CAT_SHORT.get(cid, CATEGORY_NAMES.get(cid, str(cid))[:2])
+                top_parts.append(f"{cat_short}{pct:.0f}%")
+            top_cats = "   类别TOP3: " + " / ".join(top_parts)
         return (
             f"地图: {self.state.map_id}   第 {self.state.current_round} 回合   "
             f"已知物品: {len(self.state.items)} 件   "
             f"当前物品总格数: {total_cells}   平均格数: {avg_cells:.2f}   "
-            f"已知橙: {q5_count} 件   已知红: {q6_count} 件"
+            f"已知橙: {q5_count} 件 {q5_cells}格   "
+            f"已知红: {q6_count} 件 {q6_cells}格   "
+            f"未知: {unknown_cells}格"
+            f"{top_cats}"
         )
 
     def _compute_empty_zone_count(self) -> Optional[int]:
@@ -600,7 +669,7 @@ class GridWindow:
         self._manual_shapes.clear()
 
         self.root.title(
-            f"BidKing 物品格局  —  对局 {self.state.uid}  "
+            f"BidKing 可视化鉴影 "
             f"第 {self.state.current_round} 回合  ● LIVE"
         )
         self._info_text.set(self._info_summary_text())
@@ -623,10 +692,20 @@ class GridWindow:
         self._remove_overlapping_phantoms()
         # 道具/英雄全量扫描更新后，同步手动画框物品的排除约束
         self._apply_scan_history_to_phantoms()
+        # 新约束可能与手动确认冲突，冲突时自动撤销确认
+        self._validate_manual_confirmations()
 
         self._info_text.set(self._info_summary_text())
         self._update_total_label()
         self._draw()
+
+    def _validate_manual_confirmations(self) -> None:
+        """校验所有物品的手动候选确认，冲突时自动清除。"""
+        item_sources = (self.state.items, self._phantom_items)
+        for items in item_sources:
+            for uid, k in items.items():
+                if k.manual_confirm_item_id is not None:
+                    self._valid_manual_confirm_item(uid, k)
 
     def _update_total_label(self) -> None:
         """更新估算总价标签（含空置格价值）。"""
@@ -1485,12 +1564,18 @@ class GridWindow:
         tree.tag_configure('valuable', background='#ffd6d6')
         tree.tag_configure('high',   background='#fffff0')
         tree.tag_configure('normal', background='#ffffff')
+        tree.tag_configure('confirmed', background='#d9f7d9')
 
+        iid_to_item: Dict[str, CsvItem] = {}
+        selected_iid: Optional[str] = None
+        confirmed_cid = k.manual_confirm_item_id
         for item in candidates:
             cat_str = " / ".join(
                 CATEGORY_NAMES.get(c, str(c)) for c in item.category_tags
             )
-            if item.base_value >= HIGH_VALUE_THRESHOLD:
+            if confirmed_cid and item.item_id == confirmed_cid:
+                tag = 'confirmed'
+            elif item.base_value >= HIGH_VALUE_THRESHOLD:
                 tag = 'valuable'
             elif item.base_value == top_val and n > 1:
                 tag = 'top'
@@ -1498,7 +1583,7 @@ class GridWindow:
                 tag = 'high'
             else:
                 tag = 'normal'
-            tree.insert('', 'end', values=(
+            iid = tree.insert('', 'end', values=(
                 item.name,
                 f"Q{item.quality}",
                 fmt_shape(item.shape),
@@ -1506,17 +1591,93 @@ class GridWindow:
                 f"{candidate_probs.get(item.item_id, 0.0) * 100:.2f}%",
                 f"¥{item.base_value:,}",
             ), tags=(tag,))
+            iid_to_item[iid] = item
+            if confirmed_cid and item.item_id == confirmed_cid:
+                selected_iid = iid
+
+        status_var = tk.StringVar(value="双击候选可确认；确认后将用于价格/估算/品质显示。")
+
+        def _update_status_from_item(item: CsvItem, confirmed: bool = False) -> None:
+            if confirmed:
+                status_var.set(
+                    f"已确认：{item.name}  Q{item.quality}  ¥{item.base_value:,}"
+                )
+            else:
+                status_var.set(
+                    f"当前选择：{item.name}  Q{item.quality}  ¥{item.base_value:,}"
+                )
+
+        def _on_select(_event: tk.Event) -> None:
+            sel = tree.selection()
+            if not sel:
+                return
+            item = iid_to_item.get(sel[0])
+            if item:
+                _update_status_from_item(item, confirmed=False)
+
+        def _confirm_selected(_event: Optional[tk.Event] = None) -> None:
+            sel = tree.selection()
+            if not sel:
+                return
+            item = iid_to_item.get(sel[0])
+            if item is None:
+                return
+            k.manual_confirm_item_id = item.item_id
+            self._refresh()
+            popup.destroy()
+
+        def _clear_confirmation() -> None:
+            if k.manual_confirm_item_id is None:
+                popup.destroy()
+                return
+            k.manual_confirm_item_id = None
+            self._refresh()
+            popup.destroy()
+
+        tree.bind('<<TreeviewSelect>>', _on_select)
+        tree.bind('<Double-1>', _confirm_selected)
+        if selected_iid is not None:
+            tree.selection_set(selected_iid)
+            tree.focus(selected_iid)
+            tree.see(selected_iid)
+            confirmed_item = iid_to_item.get(selected_iid)
+            if confirmed_item:
+                _update_status_from_item(confirmed_item, confirmed=True)
+        elif candidates:
+            first = tree.get_children()[0]
+            tree.selection_set(first)
+            tree.focus(first)
 
         # ── 关闭按钮 ────────────────────────────────────────────────────
+        tk.Label(
+            popup, textvariable=status_var,
+            bg='#eef3ff', fg='#334466',
+            font=('微软雅黑', 9), pady=4, padx=10, anchor='w',
+        ).pack(fill='x', padx=8, pady=(0, 3))
+
         btn_frame = tk.Frame(popup, bg='#f5f5f8')
         btn_frame.pack(pady=4)
+        tk.Button(
+            btn_frame, text="确认所选后选项",
+            command=_confirm_selected,
+            font=('微软雅黑', 9), relief='flat',
+            bg='#2f8f46', fg='white', padx=10, pady=4,
+            cursor='hand2',
+        ).pack(side='left', padx=4)
+        tk.Button(
+            btn_frame, text="取消确认",
+            command=_clear_confirmation,
+            font=('微软雅黑', 9), relief='flat',
+            bg='#8f5f2f', fg='white', padx=10, pady=4,
+            cursor='hand2',
+        ).pack(side='left', padx=4)
         tk.Button(
             btn_frame, text="  关  闭  ",
             command=popup.destroy,
             font=('微软雅黑', 9), relief='flat',
             bg='#5566aa', fg='white', padx=10, pady=4,
             cursor='hand2',
-        ).pack()
+        ).pack(side='left', padx=4)
 
     # ── 启动 ──────────────────────────────────────────────────────────────
 

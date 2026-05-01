@@ -55,6 +55,8 @@ class ItemKnowledge:
     categories: Set[int] = field(default_factory=set)
     item_cid: Optional[int] = None
     price: Optional[int] = None
+    # 手动候选确认：仅作为 UI 推断锚点，不覆盖日志真实字段
+    manual_confirm_item_id: Optional[int] = None
     excluded_categories: Set[int] = field(default_factory=set)
     excluded_qualities: Set[int] = field(default_factory=set)
 

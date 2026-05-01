@@ -25,6 +25,7 @@ _DROP_RESOLVED_CACHE: Dict[Tuple[int, Tuple[int, ...]], Dict[int, float]] = {}
 _NEST_WEIGHTS: Dict[int, List[float]] = {}
 _SUBMAP_PRIOR_MULT: Dict[int, Dict[int, Dict[int, float]]] = {}
 _KNOWN_ITEM_IDS: Set[int] = set()
+_ITEM_CATEGORY_TAGS: Dict[int, List[int]] = {}
 
 MAP_TO_TIER_NEST: Dict[int, Tuple[int, int]] = {
     2101: (101, 2001), 2102: (101, 2002), 2103: (101, 2003), 2104: (101, 2004),
@@ -40,6 +41,7 @@ MAP_TO_TIER_NEST: Dict[int, Tuple[int, int]] = {
     2501: (105, 2041), 2502: (105, 2042), 2503: (105, 2043), 2504: (105, 2044),
     2505: (105, 2045), 2506: (105, 2046), 2507: (105, 2047), 2508: (105, 2048),
     2509: (105, 2049), 2510: (105, 2050),
+    2601: (106, 2051),
 }
 TIER_REF_NEST: Dict[int, int] = {
     101: 2001,
@@ -47,6 +49,7 @@ TIER_REF_NEST: Dict[int, int] = {
     103: 2021,
     104: 2031,
     105: 2041,
+    106: 2051,
 }
 
 
@@ -73,7 +76,7 @@ def load_csv(path: str) -> Tuple[Dict[int, CsvItem], List[CsvItem]]:
 
     CSV 必须包含列: item_id, name, category_tags, shape, quality, base_value
     """
-    global _KNOWN_ITEM_IDS
+    global _KNOWN_ITEM_IDS, _ITEM_CATEGORY_TAGS
 
     index: Dict[int, CsvItem] = {}
     items: List[CsvItem] = []
@@ -98,6 +101,10 @@ def load_csv(path: str) -> Tuple[Dict[int, CsvItem], List[CsvItem]]:
             except Exception:
                 continue
     _KNOWN_ITEM_IDS = set(index)
+    _ITEM_CATEGORY_TAGS = {
+        item_id: item.category_tags
+        for item_id, item in index.items()
+    }
     base_dir = os.path.dirname(path) or "."
     load_weight_data(base_dir)
     load_map_prior_data(os.path.join(base_dir, MAP_PRIOR_HTML))
@@ -370,6 +377,56 @@ def probability_source_label(candidates: List[CsvItem], map_id: Optional[int] = 
             return f"地图权重 {original_map_id}->{map_id}->{map_drop_id}"
         return f"地图权重 {map_id}->{map_drop_id}"
     return f"全局权重（地图 {original_map_id}->{map_id}->{map_drop_id} 未覆盖候选）"
+
+
+def map_category_ratios(map_id: Optional[int]) -> Dict[int, float]:
+    """返回地图根 drop 的类别占比（category -> ratio），会自动归一化 map_id。"""
+    map_id = normalize_map_id(map_id)
+    if map_id is None or map_id not in MAP_TO_TIER_NEST:
+        return {}
+    map_drop_id = MAP_TO_TIER_NEST[map_id][1]
+    totals: Dict[int, float] = {}
+
+    def dfs(cur_drop_id: int, scale: float, path_seen: Set[int]) -> None:
+        edges = _DROP_GRAPH.get(cur_drop_id, [])
+        total = sum(weight for _ref_id, weight in edges if weight > 0)
+        if total <= 0:
+            return
+        for ref_id, weight in edges:
+            if weight <= 0:
+                continue
+            child_scale = scale * (weight / total)
+            category = ref_id // 10
+            quality = ref_id % 10
+            # 类别池节点通常是 1011~1106（category*10 + quality）。
+            if 101 <= category <= 110 and 1 <= quality <= 6:
+                totals[category] = totals.get(category, 0.0) + child_scale
+                continue
+            # 新地图 2601 会经由通用品质池 1201~1206 直接落到物品。
+            # 这类链路没有类别池节点，需要按物品自身类别回填地图类别占比。
+            if ref_id in _KNOWN_ITEM_IDS:
+                tags = [
+                    tag for tag in _ITEM_CATEGORY_TAGS.get(ref_id, [])
+                    if 101 <= tag <= 110
+                ]
+                if tags:
+                    tag_scale = child_scale / len(tags)
+                    for tag in tags:
+                        totals[tag] = totals.get(tag, 0.0) + tag_scale
+                continue
+            if ref_id in _DROP_GRAPH and ref_id not in path_seen:
+                path_seen.add(ref_id)
+                dfs(ref_id, child_scale, path_seen)
+                path_seen.remove(ref_id)
+
+    dfs(map_drop_id, 1.0, {map_drop_id})
+    total_weight = sum(totals.values())
+    if total_weight <= 0:
+        return {}
+    return {
+        category: weight / total_weight
+        for category, weight in totals.items()
+    }
 
 
 def query_item(

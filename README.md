@@ -36,8 +36,13 @@
             {
                 "UserUid": "308069414753197",
                 "Name": "栎梧",
-                "HeroCid": 204,
+                "HeroCid": 204, 使用的角色id
                 "HeadCid": 120000,
+                "PriceLog": [
+                    {
+                        "ItemCidOrPrice": 33333
+                    }
+                ],
                 "SelectItemList": [
                     {
                         "ItemCid": 100104
@@ -59,7 +64,15 @@
                 ]
             },
             {
-                其他玩家信息
+                "UserUid": "434513253800926",
+                "Name": "方得得",
+                "HeroCid": 204,
+                "PriceLog": [
+                    {
+                        "ItemCidOrPrice": 34804
+                    }
+                ],
+                "HeadCid": 120704,
             }
         ],
         "HeroSkillLog": [

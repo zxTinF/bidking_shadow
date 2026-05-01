@@ -127,8 +127,10 @@ def handle_s2c39(
         skill_cid = entry.get('SkillCid', 0)
         item_cid  = entry.get('ItemCid', 0)
         cr        = entry.get('CastRound', state.current_round)
-        category  = SKILL_TO_CATEGORY.get(skill_cid)
         tool_info = ITEM_TOOLS.get(item_cid)
+        category  = SKILL_TO_CATEGORY.get(skill_cid)
+        if category is None and tool_info:
+            category = tool_info[2]
 
         revealed_uids: List[str] = []
         for box in entry.get('HitBoxList', []):
@@ -160,6 +162,13 @@ def handle_s2c39(
             'category':   category,
             'cast_round': cr,
             'uids':       revealed_uids,
+            'hit_count':     entry.get('HitItemIndex'),
+            'total_hit':     entry.get('TotalHitBoxIndex'),
+            'avg_price':     entry.get('AllHitItemAvgPrice'),
+            'avg_box_price': entry.get('AllHitBoxAvgPrice'),
+            'total_price':   entry.get('HitItemTotalPrice'),
+            'avg_box_count': entry.get('AllHitItemAvgBoxIndex'),
+            'item_types':    entry.get('HitItemTypeList', []),
         }
         print_events([ev], state, csv_index, csv_items, out)
 
