@@ -1,8 +1,8 @@
 # 艾莎鉴影 · getlog
 
-BidKing 游戏日志解析与 **10×30 物品网格可视化**（tkinter），以及命令行逐回合文本解析。Python 包名为 **getlog**；使用 `BidKingGrid.spec` 打包后的 Windows 程序名为 **艾莎鉴影.exe**。
+BidKing 游戏日志解析与 **10×30 物品网格可视化**（tkinter），以及命令行逐回合文本解析。Python 包名为 **getlog**；使用 `BidKingGrid.spec` 可打包为 Windows 程序 **艾莎鉴影.exe**。
 
-更完整的模块与数据流说明见 **[ARCHITECTURE.md](ARCHITECTURE.md)**（本 README 后半部分为同内容的存档，便于单文件阅读）。
+前半为**使用说明**，后半为**实现与扩展说明**（原独立架构文档已并入本 README，单处维护即可）。
 
 ## 使用说明
 
@@ -33,7 +33,10 @@ uv run python parse_log.py --tail
 uv run parse-log
 ```
 
-未指定 `--log` 时，会依次尝试当前目录的 `Player.log` 与游戏默认路径下的日志（见下文「运行方式」或 `ARCHITECTURE.md` §7）。
+未指定 `--log` 时，`parse_log.py` 会按顺序查找 `Player.log`：
+
+1. 当前工作目录下的 `./Player.log`
+2. `C:\Users\Administrator\AppData\LocalLow\laolin\BidKing\Player.log`（游戏默认路径，逻辑见 `getlog/constants.py` 的 `default_game_log_path()`）
 
 **2）网格可视化 UI（`show_grid.py`）**
 
@@ -53,7 +56,7 @@ uv run python show_grid.py --log Player.log --tail
 
 ### 数据文件（与 `item_prices.csv` 同目录）
 
-解析与多候选概率需要 `item_prices.csv`；建议同时保留 `calculator_data_merged.csv`、`drop_table_weights.csv` 及可选的 `物品轮廓爆率推断器.html`。说明见下文 **§2.3** 或 `ARCHITECTURE.md`。
+解析与多候选概率需要 `item_prices.csv`；建议同时保留 `calculator_data_merged.csv`、`drop_table_weights.csv` 及可选的 `物品轮廓爆率推断器.html`。说明见下文 **§2.3**。
 
 ### 打包为 Windows 程序（PyInstaller）
 
@@ -75,17 +78,9 @@ uv run pyinstaller BidKingGrid.spec
 
 ---
 
-> 以下面向开发者与二次维护：项目目标、输入文件、模块结构、扩展方式等。
-
 ## 1. 项目目标
 
-本工具解析 BidKing 游戏产生的 `Player.log` 文件，逐回合提取关键信息，结合 `item_prices.csv` 物品数据库，识别场上每件物品的可能名称与价格，并以可读文本格式实时或批量输出。
-
-**核心输出内容：**
-- 每回合的玩家出价
-- 英雄技能/地图技能/道具使用所揭示的物品属性
-- 根据已知属性（形状、品质、类别）查询物品候选名称和价格
-- 估算全场物品总价值
+从 `Player.log` 提取对局事件，结合 `item_prices.csv` 推断每件物品的可能名称与价格；可选掉落权重（§2.3）用于多候选加权。主要能力：逐回合事件与出价、技能揭示累积、候选查询与全场总价估算（与上文「使用说明」一致）。
 
 ---
 
@@ -174,7 +169,7 @@ e:\game\getLog\
 ├── drop_table_weights.csv       # 简化 DROP 边表（后备）
 ├── 物品轮廓爆率推断器.html      # 可选：子图巢权重与池化倍率（HTML 内嵌常量）
 ├── Player.log            # 游戏日志（运行时读取）
-├── ARCHITECTURE.md       # 本文档
+├── README.md             # 使用说明 + 实现说明（本文件）
 └── getlog/               # 核心业务包
     ├── __init__.py
     ├── constants.py      # 常量与格式化工具
@@ -394,42 +389,7 @@ ITEM_TOOLS: Dict[int, Tuple[int, str, int]] = {
 
 ---
 
-## 7. 运行方式
-
-```powershell
-# 批量处理（自动查找日志）
-uv run python parse_log.py
-
-# 指定日志文件
-uv run python parse_log.py --log Player.log
-
-# 实时监听（tail模式）
-uv run python parse_log.py --tail
-
-# 输出到文件
-uv run python parse_log.py --output result.txt
-
-# 使用已注册的 CLI 命令（需先 uv sync）
-uv run parse-log --tail
-```
-
-**日志文件查找顺序（未指定 --log 时）：**
-1. `./Player.log`（当前目录，便于调试）
-2. `C:\Users\Administrator\AppData\LocalLow\laolin\BidKing\Player.log`（游戏实际路径）
-
-### 7.1 网格可视化（`show_grid.py` / `getlog/grid_view.py`）
-
-```powershell
-uv run python show_grid.py                 # 无参数：弹出启动页，选日志与回放/实时后点「启动」
-uv run python show_grid.py --log Player.log
-uv run python show_grid.py --log Player.log --tail   # 跳过启动页，直接实时监听
-```
-
-**候选弹窗 — 手动确认物品：** 左键点击格子上某物品后弹出候选表。在表中**单击**一行可预览；**双击**该行，或点击「确认所选后选项」，将把该 `item_id` 写入 `ItemKnowledge.manual_confirm_item_id`，用于该格的**总价估算**与**品质显示**（与日志已揭示的精确 `ItemCid` 并存时仍以日志为准）。「取消确认」可清除。主窗口图例栏亦有简短提示。
-
----
-
-## 8. 输出格式示例
+## 7. 输出格式示例
 
 ```
 ================================================================
@@ -454,12 +414,24 @@ uv run python show_grid.py --log Player.log --tail   # 跳过启动页，直接�
 
 ---
 
-## 9. 依赖
+## 8. 依赖
 
-本项目仅依赖 Python 3.11+ 标准库，无需第三方包：
+运行时仅依赖 **Python 3.11+** 标准库，无需第三方包：
 - `argparse` — CLI 参数解析
 - `csv` / `json` — 数据解析
 - `re` — 日志行正则匹配
 - `time` — tail 模式轮询间隔
 - `dataclasses` — 数据模型
 - `io` — tail 模式静默缓冲
+
+打包 Windows exe 时通过 `uv sync --group dev` 安装 **PyInstaller**（见上文「使用说明」），不属于运行时依赖。
+
+---
+
+## 9. 赞助
+
+如果你喜欢本项目，欢迎随缘赞助 **3 元、5 元** 意思一下，帮我回一点维护文档和开发时消耗的 **AI Token** 成本。不强求，用得开心就好。
+
+**支付宝**（扫码或保存图片到相册）：
+
+![支付宝赞助](赞助.jpg)
