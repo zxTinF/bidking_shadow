@@ -780,8 +780,12 @@ class GridWindow:
         )
         self._total_label.pack(side='right', padx=12)
 
-        tk.Label(bar, text="点击格子查看候选", bg='#222233', fg='#555577',
-                 font=('微软雅黑', 8)).pack(side='right', padx=8)
+        tk.Label(
+            bar,
+            text="点击格子查看候选；弹窗内双击行可确认",
+            bg='#222233', fg='#555577',
+            font=('微软雅黑', 8),
+        ).pack(side='right', padx=8)
 
     def _build_nav_bar(self) -> None:
         """快照导航栏：上一步 / 当前位置 / 下一步（仅快照模式显示）。"""
