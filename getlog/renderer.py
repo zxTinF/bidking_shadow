@@ -25,7 +25,7 @@ from .constants import (
     fmt_price,
     fmt_shape,
 )
-from .item_db import query_item
+from .item_db import query_item, query_item_floor_value
 from .models import CsvItem, GameState, ItemKnowledge
 
 
@@ -123,6 +123,26 @@ def calc_total_price(
 
 # ─── 物品快照 ──────────────────────────────────────────────────────────────
 
+def calc_total_floor_price(
+    state: GameState,
+    csv_index: Dict[int, CsvItem],
+    csv_items: List[CsvItem],
+) -> float:
+    """Calculate floor total value under current constraints."""
+    total = 0.0
+    for k in state.items.values():
+        if k.price is not None and k.item_cid:
+            total += k.price
+            continue
+        floor = query_item_floor_value(
+            k.shape, k.quality, k.categories, k.item_cid, csv_index, csv_items,
+            k.excluded_categories, k.excluded_qualities,
+        )
+        if floor is not None:
+            total += floor
+    return total
+
+
 def print_all_items_snapshot(
     state: GameState,
     csv_index: Dict[int, CsvItem],
@@ -140,6 +160,7 @@ def print_all_items_snapshot(
         key=lambda x: (x[1].box_id if x[1].box_id is not None else 0, x[0]),
     )
     total = calc_total_price(state, csv_index, csv_items)
+    floor_total = calc_total_floor_price(state, csv_index, csv_items)
     print(
         f"\n  ┌─ 当前全部物品 ({len(sorted_items)} 件) "
         "─────────────────────────────────",
@@ -149,6 +170,10 @@ def print_all_items_snapshot(
         print(fmt_item_line(uid, k, csv_index, csv_items, map_id=state.map_id), file=out)
     print(
         f"  └─ 估算总价: ¥{total:,.0f} (多候选取掉落权重期望价) ──────────",
+        file=out,
+    )
+    print(
+        f"  Floor total: CNY {floor_total:,.0f} (min possible per item under constraints)",
         file=out,
     )
 

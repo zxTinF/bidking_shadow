@@ -1,10 +1,44 @@
-# Python-generated files
+# Python 运行/编译产物（禁止上传）
 __pycache__/
-*.py[oc]
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# 虚拟环境与本地包缓存（禁止上传）
+.venv/
+venv/
+env/
+.uv-cache/
+
+# 构建与打包产物（不需要上传，可本地重新生成）
 build/
 dist/
 wheels/
-*.egg-info
+*.egg-info/
 
-# Virtual environments
-.venv
+# 本地日志、运行记录、大文件归档（禁止上传）
+*.log
+records/
+tmp_records_ui_check/
+*.zip
+*.7z
+*.rar
+*.tar
+*.tar.gz
+
+# 临时工具/反编译依赖目录（禁止上传）
+.tmp_*/
+tmp_*/
+
+# 本地环境变量与机器相关配置（禁止上传）
+.env
+.env.*
+!.env.example
+
+# 需要随项目上传的游戏覆盖文件
+!覆盖游戏文件/
+!覆盖游戏文件/**

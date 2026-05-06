@@ -57,6 +57,8 @@ class ItemKnowledge:
     price: Optional[int] = None
     # 手动候选确认：仅作为 UI 推断锚点，不覆盖日志真实字段
     manual_confirm_item_id: Optional[int] = None
+    # 手动品质猜测：仅在日志未给出品质时生效（例如手动指定 Q5/Q6）
+    manual_quality: Optional[int] = None
     excluded_categories: Set[int] = field(default_factory=set)
     excluded_qualities: Set[int] = field(default_factory=set)
 

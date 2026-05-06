@@ -429,6 +429,77 @@ def map_category_ratios(map_id: Optional[int]) -> Dict[int, float]:
     }
 
 
+def _filter_candidates(
+    shape: Optional[int],
+    quality: Optional[int],
+    categories: Set[int],
+    item_cid: Optional[int],
+    csv_index: Dict[int, CsvItem],
+    csv_items: List[CsvItem],
+    excluded_categories: Optional[Set[int]] = None,
+    excluded_qualities: Optional[Set[int]] = None,
+    max_shape_wh: Optional[Tuple[int, int]] = None,
+) -> List[CsvItem]:
+    """按当前约束过滤候选物品集合。"""
+    if item_cid and item_cid in csv_index:
+        return [csv_index[item_cid]]
+
+    candidates = list(csv_items)
+
+    if shape is not None:
+        candidates = [i for i in candidates if i.shape == shape]
+    elif max_shape_wh is not None:
+        max_w, max_h = max_shape_wh
+
+        def _fits(s: int) -> bool:
+            ss = str(s)
+            if len(ss) == 2:
+                return int(ss[0]) <= max_w and int(ss[1]) <= max_h
+            return False
+
+        candidates = [i for i in candidates if _fits(i.shape)]
+
+    if quality is not None:
+        candidates = [i for i in candidates if i.quality == quality]
+
+    if excluded_qualities:
+        candidates = [i for i in candidates if i.quality not in excluded_qualities]
+
+    if categories:
+        with_cat = [i for i in candidates if all(c in i.category_tags for c in categories)]
+        if with_cat:
+            candidates = with_cat
+
+    if excluded_categories:
+        candidates = [
+            i for i in candidates
+            if not any(c in excluded_categories for c in i.category_tags)
+        ]
+
+    return candidates
+
+
+def query_item_floor_value(
+    shape: Optional[int],
+    quality: Optional[int],
+    categories: Set[int],
+    item_cid: Optional[int],
+    csv_index: Dict[int, CsvItem],
+    csv_items: List[CsvItem],
+    excluded_categories: Optional[Set[int]] = None,
+    excluded_qualities: Optional[Set[int]] = None,
+    max_shape_wh: Optional[Tuple[int, int]] = None,
+) -> Optional[float]:
+    """返回当前约束下该物品可能价值的下界（保底价）。"""
+    candidates = _filter_candidates(
+        shape, quality, categories, item_cid, csv_index, csv_items,
+        excluded_categories, excluded_qualities, max_shape_wh,
+    )
+    if not candidates:
+        return None
+    return float(min(item.base_value for item in candidates))
+
+
 def query_item(
     shape: Optional[int],
     quality: Optional[int],
@@ -477,43 +548,10 @@ def query_item(
 
     估算规则（多候选时）：按 drop_table_weights.csv 中的掉落权重计算期望价。
     """
-    if item_cid and item_cid in csv_index:
-        return csv_index[item_cid], 1, True, None, ""
-
-    candidates = list(csv_items)
-
-    if shape is not None:
-        candidates = [i for i in candidates if i.shape == shape]
-    elif max_shape_wh is not None:
-        # shape 未知但可推断最大尺寸：过滤掉一定放不下的候选
-        max_w, max_h = max_shape_wh
-        def _fits(s: int) -> bool:
-            ss = str(s)
-            if len(ss) == 2:
-                return int(ss[0]) <= max_w and int(ss[1]) <= max_h
-            return False
-        candidates = [i for i in candidates if _fits(i.shape)]
-
-    if quality is not None:
-        candidates = [i for i in candidates if i.quality == quality]
-
-    # 负向品质约束：排除确定不是的品质
-    if excluded_qualities:
-        candidates = [i for i in candidates if i.quality not in excluded_qualities]
-
-    # 正向类别约束：候选必须含有全部已知类别（每一个类别都经过全量扫描确认）
-    if categories:
-        with_cat = [i for i in candidates if all(c in i.category_tags for c in categories)]
-        if with_cat:
-            candidates = with_cat
-
-    # 负向类别约束：排除包含已确认"不属于"类别的候选
-    # 逻辑：若某类别 X 的全量扫描未命中此物品，则该物品不可能含有类别 X
-    if excluded_categories:
-        candidates = [
-            i for i in candidates
-            if not any(c in excluded_categories for c in i.category_tags)
-        ]
+    candidates = _filter_candidates(
+        shape, quality, categories, item_cid, csv_index, csv_items,
+        excluded_categories, excluded_qualities, max_shape_wh,
+    )
 
     if not candidates:
         return None, 0, False, None, ""
