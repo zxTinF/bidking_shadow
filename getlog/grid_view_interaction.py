@@ -328,6 +328,7 @@ class GridWindowInteractionMixin:
         if uid and uid in self._phantom_items:
             self._phantom_items.pop(uid, None)
             self._manual_shapes.pop(uid, None)
+            self._refresh_summary_bars()
             self._draw()
 
     def _find_resize_handle_at(self, cx: int, cy: int) -> Optional[Tuple[str, str]]:

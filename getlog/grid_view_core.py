@@ -47,11 +47,11 @@ class GridWindowCoreMixin:
         return 1, 1
 
     def _effective_shape_wh(self, uid: str, k: ItemKnowledge) -> Tuple[int, int]:
-        if k.shape is not None:
-            return self._shape_wh(k.shape)
         if uid in self._manual_shapes:
             w, h, _, _ = self._manual_shapes[uid]
             return w, h
+        if k.shape is not None:
+            return self._shape_wh(k.shape)
         return 1, 1
 
     def _effective_display_origin(self, uid: str, k: ItemKnowledge) -> Tuple[int, int]:
@@ -983,11 +983,12 @@ class GridWindowCoreMixin:
         total_cells = 0
         item_count = 0
         quality_stats = {quality: {"count": 0, "cells": 0} for quality in range(1, 7)}
-        high_quality_range_cells = 0
+        gold_red_cell_set: Set[Tuple[int, int]] = set()
 
         for uid, k in item_rows:
             if k.box_id is None:
                 continue
+            col, row = self._effective_display_origin(uid, k)
             w, h = self._effective_shape_wh(uid, k)
             cells = w * h
             total_cells += cells
@@ -996,8 +997,10 @@ class GridWindowCoreMixin:
             if quality in quality_stats:
                 quality_stats[quality]["count"] += 1
                 quality_stats[quality]["cells"] += cells
+                if quality in (5, 6):
+                    gold_red_cell_set.update(self._rect_cells(row, col, w, h))
             elif self._is_high_quality_range(k):
-                high_quality_range_cells += cells
+                gold_red_cell_set.update(self._rect_cells(row, col, w, h))
 
         avg_cells = total_cells / item_count if item_count else 0.0
         top_cats = "类别TOP5: -"
@@ -1024,11 +1027,7 @@ class GridWindowCoreMixin:
         stack_range = self._stack_estimated_total_cells_range()
         stack_est_total = stack_range[0] if stack_range is not None else total_cells
         low_mid_cells = sum(quality_stats[q]["cells"] for q in (1, 2, 3, 4))
-        gold_red_cells = (
-            quality_stats[5]["cells"]
-            + quality_stats[6]["cells"]
-            + high_quality_range_cells
-        )
+        gold_red_cells = len(gold_red_cell_set)
 
         def _quality_text(label: str, quality: int) -> str:
             count = quality_stats[quality]["count"]

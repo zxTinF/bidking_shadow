@@ -139,9 +139,8 @@ class GridWindowLiveMixin:
                 if is_new_game:
                     self._reset_for_new_game()
                 else:
-                    live_tag = "  ● LIVE" if self._log_path else ""
                     self.root.title(
-                        f"BidKing 鉴影可视化 第 {self.state.current_round} 回合{live_tag}"
+                        f"BidKing 鉴影可视化 第 {self.state.current_round} 回合"
                     )
                     self._refresh()
         self.root.after(300, self._poll_updates)
@@ -151,8 +150,13 @@ class GridWindowLiveMixin:
         self._phantom_items.clear()
         self._phantom_draw_state = None
         self._manual_shapes.clear()
+        self._autofill_solutions = []
+        self._autofill_next_id = 1
+        for var in self._input_vars.values():
+            var.set("")
+        self._captured_input_values = {}
         self.root.title(
-            f"BidKing 鉴影可视化 第 {self.state.current_round} 回合  ● LIVE"
+            f"BidKing 鉴影可视化 第 {self.state.current_round} 回合"
         )
         self._info_text.set(self._info_summary_text())
         cw = GRID_COLS * CELL_W + 1
