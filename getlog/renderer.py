@@ -6,7 +6,7 @@
 
 主要函数：
   - fmt_item_line          : 格式化单行物品信息
-  - calc_total_price        : 计算全部物品估算总价
+  - calc_total_price        : 计算估算总价格（约束后验）
   - print_all_items_snapshot: 输出全量物品快照
   - print_events            : 批量输出事件列表
   - print_bids              : 输出某回合出价情况
@@ -25,8 +25,18 @@ from .constants import (
     fmt_price,
     fmt_shape,
 )
-from .item_db import query_item, query_item_floor_value
+from .item_db import (
+    candidate_probabilities,
+    query_item,
+    query_item_floor_value,
+    _filter_candidates,
+)
 from .models import CsvItem, GameState, ItemKnowledge
+from .posterior_estimator import (
+    WeightedValue,
+    estimate_total_posterior,
+    price_likelihood,
+)
 
 
 # ─── 单行物品格式化 ────────────────────────────────────────────────────────
@@ -94,31 +104,45 @@ def calc_total_price(
     csv_items: List[CsvItem],
     map_category_weights: Optional[Dict[int, float]] = None,
 ) -> float:
-    """
-    对所有已知物品估算总价：
-      - 精确已知（item_cid + price）→ 直接累加 price
-      - 唯一确定 → 累加 base_value
-      - 多候选 → 累加掉落权重期望价
-      - 无匹配 → 跳过
-    """
-    total = 0.0
+    """Constraint posterior estimate used as the displayed total estimate."""
+    distributions = []
     for k in state.items.values():
         if k.price is not None and k.item_cid:
-            total += k.price
+            distributions.append([WeightedValue(float(k.price), 1.0)])
             continue
-        best, count, unique, est, _label = query_item(
-            k.shape, k.quality, k.categories, k.item_cid, csv_index, csv_items,
-            k.excluded_categories, k.excluded_qualities,
+        candidates = _filter_candidates(
+            k.shape,
+            k.quality,
+            k.categories,
+            k.item_cid,
+            csv_index,
+            csv_items,
+            k.excluded_categories,
+            k.excluded_qualities,
+        )
+        if not candidates:
+            distributions.append([])
+            continue
+        if len(candidates) == 1:
+            distributions.append([WeightedValue(float(candidates[0].base_value), 1.0)])
+            continue
+        probs = candidate_probabilities(
+            candidates,
             map_category_weights=map_category_weights,
             map_id=state.map_id,
         )
-        if best is None:
-            continue
-        if unique:
-            total += best.base_value
-        elif est is not None:
-            total += est
-    return total
+        observed_price = float(k.price) if k.price is not None else None
+        distributions.append(
+            [
+                WeightedValue(
+                    float(item.base_value),
+                    probs.get(item.item_id, 0.0)
+                    * price_likelihood(float(item.base_value), observed_price),
+                )
+                for item in candidates
+            ]
+        )
+    return estimate_total_posterior(distributions, sample_count=2048).estimate
 
 
 # ─── 物品快照 ──────────────────────────────────────────────────────────────
@@ -150,7 +174,7 @@ def print_all_items_snapshot(
     out,
 ) -> None:
     """
-    输出当前全部已知物品的快照（按 BoxId 升序排列），末尾附估算总价。
+    输出当前全部已知物品的快照（按 BoxId 升序排列），末尾附估算总价格。
     state.items 为空时不输出任何内容。
     """
     if not state.items:
@@ -169,7 +193,7 @@ def print_all_items_snapshot(
     for uid, k in sorted_items:
         print(fmt_item_line(uid, k, csv_index, csv_items, map_id=state.map_id), file=out)
     print(
-        f"  └─ 估算总价: ¥{total:,.0f} (多候选取掉落权重期望价) ──────────",
+        f"  └─ 估算总价格: ¥{total:,.0f} ──────────",
         file=out,
     )
     print(

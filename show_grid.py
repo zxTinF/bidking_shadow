@@ -23,12 +23,14 @@ from typing import Dict, List, Optional
 
 from getlog.constants import CSV_PATH, DEFAULT_GAME_LOG, LOCAL_COPY_LOG, LOCAL_LOG
 from getlog.grid_view import GridWindow
+from getlog.item_db import load_csv
+from getlog.models import GameState
 from getlog.round_recorder import (
     export_round_records_to_directory,
     format_game_real_time,
     load_round_record_game_for_grid,
 )
-from getlog.runner import parse_last_game, parse_last_game_rounds
+from getlog.runner import parse_last_game_rounds
 
 
 def _project_root() -> str:
@@ -200,17 +202,14 @@ def _open_grid(
     master: Optional[tk.Misc] = None,
 ) -> None:
     if tail:
-        state, csv_index, csv_items = parse_last_game(log_path, csv_path)
-        if state is None:
-            from getlog.models import GameState
-
-            state = GameState()
+        csv_index, csv_items = load_csv(csv_path)
         GridWindow(
-            state,
+            GameState(),
             csv_index,
             csv_items,
             master=master,
             log_path=log_path,
+            recover_live_state=True,
         ).run()
         return
 
@@ -472,7 +471,11 @@ def _show_start_page(default_log: str, csv_path: str) -> None:
             mode_var.set("record_replay")
         messagebox.showinfo(
             "导出完成",
-            f"已导出 {result.get('game_count', 0)} 局记录到:\n{result.get('records_dir', records_dir)}",
+            (
+                f"新增导出 {result.get('game_count', 0)} 局记录；"
+                f"当前共有 {result.get('total_game_count', result.get('game_count', 0))} 局已结束记录。\n"
+                f"目录:\n{result.get('records_dir', records_dir)}"
+            ),
         )
 
     btn_export_all = tk.Button(
@@ -641,7 +644,9 @@ def main() -> None:
             last_game_only=args.last_game_only,
         )
         print(
-            f"已导出 {result['game_count']} 局记录到目录: {result['records_dir']}\n"
+            f"新增导出 {result['game_count']} 局记录；"
+            f"当前共有 {result.get('total_game_count', result['game_count'])} 局已结束记录。\n"
+            f"目录: {result['records_dir']}\n"
             f"清单文件: {result['manifest']}",
             file=sys.stderr,
         )

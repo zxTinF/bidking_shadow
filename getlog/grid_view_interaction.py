@@ -19,6 +19,8 @@ from .grid_view_shared import (
     GRID_LINE,
     GRID_ROWS,
     HIGH_VALUE_THRESHOLD,
+    MANUAL_QUALITY_BG,
+    MANUAL_QUALITY_FG,
     MIN_ROUND_SHOW_EMPTY,
     PHANTOM_BG,
     PHANTOM_BORDER,
@@ -127,12 +129,19 @@ class GridWindowInteractionMixin:
         cy = (y1 + y2) / 2
         is_phantom = uid in self._phantom_items
         q = self._display_quality(uid, k) or 0
-        bg = PHANTOM_BG if is_phantom else QUALITY_BG.get(q, UNKNOWN_BG)
-        fg = QUALITY_FG.get(q, UNKNOWN_FG)
+        if k.manual_quality in MANUAL_QUALITY_BG:
+            bg = MANUAL_QUALITY_BG[k.manual_quality]
+            fg = MANUAL_QUALITY_FG.get(k.manual_quality, UNKNOWN_FG)
+        else:
+            bg = PHANTOM_BG if is_phantom else QUALITY_BG.get(q, UNKNOWN_BG)
+            fg = QUALITY_FG.get(q, UNKNOWN_FG)
         tag = f"item_{uid}"
         price_value = self._display_price_value(uid, k)
         is_high_value = price_value is not None and price_value >= HIGH_VALUE_THRESHOLD
-        if is_phantom:
+        if k.manual_quality in MANUAL_QUALITY_BG:
+            border_color = MANUAL_QUALITY_BG[k.manual_quality]
+            border_width = 3
+        elif is_phantom:
             border_color = PHANTOM_BORDER
             border_width = 2
         elif is_high_value:

@@ -34,6 +34,7 @@ class GridWindow(
         log_path: Optional[str] = None,
         snapshots: Optional[List[Tuple[str, GameState]]] = None,
         map_category_weights: Optional[Dict[int, float]] = None,
+        recover_live_state: bool = False,
     ) -> None:
         """初始化窗口状态，并按模式决定是否启动实时监听。"""
         self.state = state
@@ -53,16 +54,24 @@ class GridWindow(
         self._phantom_items: Dict[str, ItemKnowledge] = {}
         self._phantom_counter: int = 0
         self._phantom_draw_state: Optional[dict] = None
+        self._autofill_solutions: List[dict] = []
+        self._autofill_next_id: int = 1
+        self._autofill_last_count: int = 0
         self._input_vars: Dict[str, tk.StringVar] = {}
         self._input_labels: Dict[str, str] = {}
-        self._captured_input_values: Dict[str, Optional[int]] = {}
+        self._captured_input_values: Dict[str, object] = {}
         self._hidden_analysis_cache_key = None
         self._hidden_analysis_cache = None
         self._lock: threading.Lock = threading.Lock()
         self._queue: queue.SimpleQueue = queue.SimpleQueue()
         self._live_game_active: bool = bool(state.uid)
+        self._live_recovery_pending: bool = bool(log_path and recover_live_state)
+        self._live_buffered_events: List[Tuple[str, dict]] = []
+        self._live_start_pos: int = 0
         self._recalc_vis_rows()
         self._build_window()
         if log_path and not snapshots:
             self._start_live_monitor()
-            self.root.after(300, self._poll_updates)
+            if recover_live_state:
+                self._start_live_recovery()
+        self.root.after(300, self._poll_updates)

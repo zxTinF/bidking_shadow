@@ -13,6 +13,7 @@ run() 是整个解析流程的入口：
 
 import copy
 import io
+import os
 import sys
 from typing import Dict, List, Optional, Tuple
 
@@ -21,6 +22,84 @@ from .item_db import load_csv
 from .log_parser import extract_event, iter_log_lines
 from .models import CsvItem, GameState
 from .renderer import print_catchup_summary
+
+
+_GAME_START_MARKER = b"S2C_33_game_start_notify"
+
+
+def _read_last_game_text(log_path: str, end_pos: Optional[int] = None) -> str:
+    """
+    Read only the tail segment containing the last game start event.
+
+    This keeps GUI startup responsive for large Player.log files. If the last
+    game is unusually large, the window grows until it either finds the last
+    start marker or reaches the beginning of the file.
+    """
+    file_size = os.path.getsize(log_path)
+    limit = file_size if end_pos is None else max(0, min(int(end_pos), file_size))
+    if limit <= 0:
+        return ""
+
+    chunk_size = 1024 * 1024
+    with open(log_path, "rb") as f:
+        while True:
+            start = max(0, limit - chunk_size)
+            f.seek(start)
+            data = f.read(limit - start)
+            marker_at = data.rfind(_GAME_START_MARKER)
+            if marker_at >= 0:
+                line_start = data.rfind(b"\n", 0, marker_at)
+                if line_start >= 0:
+                    marker_at = line_start + 1
+                return data[marker_at:].decode("utf-8", errors="replace")
+            if start == 0:
+                return data.decode("utf-8", errors="replace")
+            chunk_size = min(chunk_size * 2, limit)
+
+
+def parse_last_game_state_from_tail(
+    log_path: str,
+    csv_index: Dict[int, CsvItem],
+    csv_items: List[CsvItem],
+    *,
+    end_pos: Optional[int] = None,
+) -> Optional[GameState]:
+    """Parse the last game by first seeking backward to the last start event."""
+    text = _read_last_game_text(log_path, end_pos=end_pos)
+    if not text:
+        return None
+
+    silent = io.StringIO()
+    state: Optional[GameState] = None
+    cur_state = GameState()
+    game_active = False
+
+    for line in text.splitlines():
+        result = extract_event(line)
+        if not result:
+            continue
+        event_type, data = result
+
+        if event_type == 'S2C_33_game_start_notify':
+            cur_state = GameState()
+            game_active = True
+            handle_s2c33(data, cur_state, csv_index, csv_items, silent)
+
+        elif event_type == 'S2C_37_game_next_round_notify' and game_active:
+            handle_s2c37(data, cur_state, csv_index, csv_items, silent)
+
+        elif event_type == 'S2C_39_game_use_item' and game_active:
+            handle_s2c39(data, cur_state, csv_index, csv_items, silent)
+
+        elif event_type == 'S2C_45_game_over_notify' and game_active:
+            handle_s2c45(data, cur_state, csv_index, csv_items, silent)
+            state = cur_state
+            game_active = False
+
+    if game_active:
+        state = cur_state
+
+    return state
 
 
 def run(
@@ -108,40 +187,7 @@ def parse_last_game(
         csv_items : 全量 CsvItem 列表
     """
     csv_index, csv_items = load_csv(csv_path)
-    silent = io.StringIO()
-
-    state: Optional[GameState] = None
-    cur_state = GameState()
-    game_active = False
-
-    for line in iter_log_lines(log_path, tail=False):
-        if line is None:
-            break
-        result = extract_event(line)
-        if not result:
-            continue
-        event_type, data = result
-
-        if event_type == 'S2C_33_game_start_notify':
-            cur_state = GameState()
-            game_active = True
-            handle_s2c33(data, cur_state, csv_index, csv_items, silent)
-
-        elif event_type == 'S2C_37_game_next_round_notify' and game_active:
-            handle_s2c37(data, cur_state, csv_index, csv_items, silent)
-
-        elif event_type == 'S2C_39_game_use_item' and game_active:
-            handle_s2c39(data, cur_state, csv_index, csv_items, silent)
-
-        elif event_type == 'S2C_45_game_over_notify' and game_active:
-            handle_s2c45(data, cur_state, csv_index, csv_items, silent)
-            state = cur_state
-            game_active = False
-
-    # 若最后一局未结束，也返回当前状态
-    if game_active:
-        state = cur_state
-
+    state = parse_last_game_state_from_tail(log_path, csv_index, csv_items)
     return state, csv_index, csv_items
 
 

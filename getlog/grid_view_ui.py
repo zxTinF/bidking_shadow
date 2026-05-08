@@ -13,7 +13,6 @@ from .grid_view_shared import (
     EMPTY_BG,
     GRID_COLS,
     GRID_ROWS,
-    UNKNOWN_BG,
 )
 
 
@@ -22,13 +21,12 @@ class GridWindowUiMixin:
 
     def _build_window(self) -> None:
         """按当前模式组装主窗口。"""
-        live_tag = "  ● LIVE" if self._log_path else ""
         if self._master is None:
             self.root = tk.Tk()
         else:
             self.root = tk.Toplevel(self._master)
         self.root.title(
-            f"BidKing 鉴影可视化 第 {self.state.current_round} 回合{live_tag}"
+            f"BidKing 鉴影可视化 第 {self.state.current_round} 回合"
         )
         self.root.configure(bg="#1a1a2e")
         self._build_info_bar()
@@ -37,6 +35,7 @@ class GridWindowUiMixin:
         if self._snapshots:
             self._build_nav_bar()
         self._build_input_table()
+        self._build_footer_note()
         self._draw()
 
     def _build_info_bar(self) -> None:
@@ -52,34 +51,64 @@ class GridWindowUiMixin:
             wraplength=CANVAS_MAX_W - 20,
             justify="left",
         ).pack(side="left")
-        if self._log_path:
-            tk.Label(
-                bar,
-                text=" ● LIVE ",
-                bg="#c03030",
+        controls = tk.Frame(self.root, bg="#1a1a2e", pady=0)
+        controls.pack(fill="x", padx=8, pady=(0, 2))
+        self._always_on_top_var = tk.BooleanVar(value=False)
+        self._always_on_top_button = tk.Checkbutton(
+            controls,
+            text="置顶",
+            variable=self._always_on_top_var,
+            command=self._toggle_always_on_top,
+            indicatoron=False,
+            bg="#2d3448",
+            fg="#dfe7ff",
+            activebackground="#42577a",
+            activeforeground="#ffffff",
+            selectcolor="#4f7aa3",
+            relief="flat",
+            padx=10,
+            pady=2,
+            font=("Microsoft YaHei UI", 9),
+        )
+        self._always_on_top_button.pack(side="left")
+        self._update_always_on_top_button()
+
+    def _toggle_always_on_top(self) -> None:
+        enabled = bool(self._always_on_top_var.get())
+        try:
+            self.root.attributes("-topmost", enabled)
+        except tk.TclError as exc:
+            self._always_on_top_var.set(False)
+            self._update_always_on_top_button()
+            messagebox.showerror("置顶失败", str(exc), parent=self.root)
+            return
+        self._update_always_on_top_button()
+
+    def _update_always_on_top_button(self) -> None:
+        enabled = bool(self._always_on_top_var.get())
+        if enabled:
+            self._always_on_top_button.config(
+                text="已置顶",
+                bg="#4f7aa3",
+                activebackground="#5d8ebd",
                 fg="#ffffff",
-                font=("Microsoft YaHei UI", 9, "bold"),
-                relief="flat",
-                padx=4,
-            ).pack(side="right", padx=8)
+            )
+        else:
+            self._always_on_top_button.config(
+                text="置顶",
+                bg="#2d3448",
+                activebackground="#42577a",
+                fg="#dfe7ff",
+            )
 
     def _build_legend(self) -> None:
         """构建图例和总价展示区。"""
         bar = tk.Frame(self.root, bg="#222233", pady=5)
         bar.pack(fill="x", padx=8)
-        tk.Label(
-            bar,
-            text=" 未知 ",
-            bg=UNKNOWN_BG,
-            fg="#ffffff",
-            font=("Microsoft YaHei UI", 8),
-            relief="flat",
-            padx=2,
-        ).pack(side="left", padx=(6, 2))
-        total = self._calc_grid_total_price()
+        estimate = self._calc_grid_total_estimate_price()
         self._total_label = tk.Label(
             bar,
-            text=f"估算总价  ¥{total:,.0f}",
+            text=f"估算总价格: ¥{estimate:,.0f}",
             bg="#222233",
             fg="#e8d080",
             font=("Microsoft YaHei UI", 10, "bold"),
@@ -96,18 +125,56 @@ class GridWindowUiMixin:
         if raw != clean:
             var.set(clean)
 
+    @staticmethod
+    def _sanitize_decimal_var(var: tk.StringVar) -> None:
+        raw = var.get()
+        chars = []
+        seen_dot = False
+        decimals = 0
+        for ch in raw:
+            if ch.isdigit():
+                if seen_dot:
+                    if decimals >= 2:
+                        continue
+                    decimals += 1
+                chars.append(ch)
+            elif ch == "." and not seen_dot:
+                seen_dot = True
+                chars.append(ch)
+        clean = "".join(chars)
+        if raw != clean:
+            var.set(clean)
+
     def _sanitize_registered_input_vars(self) -> None:
-        for var in self._input_vars.values():
-            self._sanitize_numeric_var(var)
+        for key, var in self._input_vars.items():
+            if key == "gold_avg_cells":
+                self._sanitize_decimal_var(var)
+            else:
+                self._sanitize_numeric_var(var)
 
     def _validate_gold_total_cells(self, proposed: str) -> bool:
         return proposed == "" or proposed.isdigit()
 
-    def _collect_input_values(self) -> Dict[str, Optional[int]]:
-        values: Dict[str, Optional[int]] = {}
+    def _validate_gold_avg_cells(self, proposed: str) -> bool:
+        if proposed == "":
+            return True
+        if proposed.count(".") > 1:
+            return False
+        head, dot, tail = proposed.partition(".")
+        if head and not head.isdigit():
+            return False
+        if dot and (not head or len(tail) > 2 or (tail and not tail.isdigit())):
+            return False
+        return bool(head or dot)
+
+    def _collect_input_values(self) -> Dict[str, object]:
+        values: Dict[str, object] = {}
         for key, var in self._input_vars.items():
             raw = var.get().strip()
-            values[key] = int(raw) if raw.isdigit() else None
+            if key == "gold_avg_cells":
+                values[key] = float(raw) if raw and raw != "." else None
+            else:
+                values[key] = int(raw) if raw.isdigit() else None
         return values
 
     def _confirm_input_values(self) -> None:
@@ -119,8 +186,14 @@ class GridWindowUiMixin:
             label = self._input_labels.get(key, key)
             shown = str(val) if val is not None else "-"
             parts.append(f"{label}={shown}")
-        msg = "，".join(parts) if parts else "暂无输入值"
-        messagebox.showinfo("输入已记录", msg, parent=self.root)
+        self._refresh_summary_bars()
+
+    def _reset_input_values(self) -> None:
+        """清空输入区约束并刷新估算。"""
+        for var in self._input_vars.values():
+            var.set("")
+        self._captured_input_values = {}
+        self._refresh_summary_bars()
 
     def _build_input_table(self) -> None:
         """构建人工录入区。"""
@@ -139,11 +212,38 @@ class GridWindowUiMixin:
         fields.pack(anchor="w")
         tk.Label(
             fields,
-            text="金总格",
+            text="金个数",
             bg="#2a2a3a",
             fg="#ffffff",
             font=("Microsoft YaHei UI", 9),
         ).grid(row=0, column=0, sticky="w", padx=(0, 8))
+        self._gold_count_var = tk.StringVar(value="")
+        self._input_vars["gold_count"] = self._gold_count_var
+        self._input_labels["gold_count"] = "金个数"
+        ent_count = tk.Entry(
+            fields,
+            textvariable=self._gold_count_var,
+            bg="#1f2233",
+            fg="#ffffff",
+            insertbackground="#ffffff",
+            relief="flat",
+            font=("Consolas", 10),
+            width=6,
+            validate="key",
+            validatecommand=(self.root.register(self._validate_gold_total_cells), "%P"),
+        )
+        ent_count.grid(row=0, column=1, sticky="w")
+        ent_count.bind(
+            "<KeyRelease>",
+            lambda _e: self._sanitize_numeric_var(self._gold_count_var),
+        )
+        tk.Label(
+            fields,
+            text="金总格",
+            bg="#2a2a3a",
+            fg="#ffffff",
+            font=("Microsoft YaHei UI", 9),
+        ).grid(row=0, column=2, sticky="w", padx=(16, 8))
         self._gold_total_cells_var = tk.StringVar(value="")
         self._input_vars["gold_total_cells"] = self._gold_total_cells_var
         self._input_labels["gold_total_cells"] = "金总格"
@@ -155,11 +255,11 @@ class GridWindowUiMixin:
             insertbackground="#ffffff",
             relief="flat",
             font=("Consolas", 10),
-            width=14,
+            width=6,
             validate="key",
             validatecommand=(self.root.register(self._validate_gold_total_cells), "%P"),
         )
-        ent.grid(row=0, column=1, sticky="w")
+        ent.grid(row=0, column=3, sticky="w")
         ent.bind("<KeyRelease>", self._sanitize_gold_total_cells)
         tk.Label(
             fields,
@@ -167,7 +267,7 @@ class GridWindowUiMixin:
             bg="#2a2a3a",
             fg="#ffffff",
             font=("Microsoft YaHei UI", 9),
-        ).grid(row=0, column=2, sticky="w", padx=(16, 8))
+        ).grid(row=0, column=4, sticky="w", padx=(16, 8))
         self._gold_avg_cells_var = tk.StringVar(value="")
         self._input_vars["gold_avg_cells"] = self._gold_avg_cells_var
         self._input_labels["gold_avg_cells"] = "金均格"
@@ -179,14 +279,14 @@ class GridWindowUiMixin:
             insertbackground="#ffffff",
             relief="flat",
             font=("Consolas", 10),
-            width=14,
+            width=7,
             validate="key",
-            validatecommand=(self.root.register(self._validate_gold_total_cells), "%P"),
+            validatecommand=(self.root.register(self._validate_gold_avg_cells), "%P"),
         )
-        ent_avg.grid(row=0, column=3, sticky="w")
+        ent_avg.grid(row=0, column=5, sticky="w")
         ent_avg.bind(
             "<KeyRelease>",
-            lambda _e: self._sanitize_numeric_var(self._gold_avg_cells_var),
+            lambda _e: self._sanitize_decimal_var(self._gold_avg_cells_var),
         )
         tk.Button(
             fields,
@@ -198,7 +298,33 @@ class GridWindowUiMixin:
             padx=10,
             pady=2,
             font=("Microsoft YaHei UI", 9),
-        ).grid(row=0, column=4, sticky="w", padx=(16, 0))
+        ).grid(row=0, column=6, sticky="w", padx=(16, 0))
+        tk.Button(
+            fields,
+            text="重置",
+            command=self._reset_input_values,
+            bg="#4b4f63",
+            fg="#ffffff",
+            relief="flat",
+            padx=10,
+            pady=2,
+            font=("Microsoft YaHei UI", 9),
+        ).grid(row=0, column=7, sticky="w", padx=(8, 0))
+        autofill = tk.Frame(table, bg="#2a2a3a")
+        autofill.pack(anchor="w", fill="x", pady=(8, 0))
+        left = tk.Frame(autofill, bg="#2a2a3a")
+        left.pack(side="left", anchor="n")
+        tk.Button(
+            left,
+            text="尝试填充",
+            command=self._try_autofill_hidden_high_quality,
+            bg="#546b3f",
+            fg="#ffffff",
+            relief="flat",
+            padx=10,
+            pady=3,
+            font=("Microsoft YaHei UI", 9),
+        ).pack(anchor="w")
 
     def _build_nav_bar(self) -> None:
         """快照回放模式下的回合导航栏。"""
@@ -291,7 +417,7 @@ class GridWindowUiMixin:
             takefocus=1,
         )
         v_sb.config(command=self.canvas.yview)
-        self.canvas.pack(side="left", fill="y", expand=True)
+        self.canvas.pack(side="left", fill="y", expand=False)
         v_sb.pack(side="left", fill="y")
         self.canvas.bind("<Button-1>", self._on_click)
         self.canvas.bind("<B1-Motion>", self._on_drag)
@@ -311,3 +437,15 @@ class GridWindowUiMixin:
         if event.delta:
             self.canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
         return "break"
+
+    def _build_footer_note(self) -> None:
+        """构建右下角项目说明。"""
+        bar = tk.Frame(self.root, bg="#1a1a2e", pady=2)
+        bar.pack(fill="x", padx=8, pady=(0, 4))
+        tk.Label(
+            bar,
+            text="此为开源免费项目",
+            bg="#1a1a2e",
+            fg="#8f98b3",
+            font=("Microsoft YaHei UI", 8),
+        ).pack(side="right")

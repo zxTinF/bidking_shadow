@@ -25,6 +25,14 @@ QUALITY_BG: Dict[int, str] = {
     6: "#c02020",
 }
 QUALITY_FG: Dict[int, str] = {k: "#ffffff" for k in range(1, 7)}
+MANUAL_QUALITY_BG: Dict[int, str] = {
+    5: "#f0b429",
+    6: "#e34b5f",
+}
+MANUAL_QUALITY_FG: Dict[int, str] = {
+    5: "#241600",
+    6: "#ffffff",
+}
 UNKNOWN_BG = "#7a5c3a"
 UNKNOWN_FG = "#ffffff"
 EMPTY_BG = "#2a2a3a"

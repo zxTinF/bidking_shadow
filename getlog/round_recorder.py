@@ -263,6 +263,8 @@ def _collect_round_records(
     csv_path: str,
     include_item_events: bool = False,
     last_game_only: bool = True,
+    skip_game_uids: Optional[set] = None,
+    ended_only: bool = False,
 ) -> Dict[str, Any]:
     """
     Export structured round records to JSON.
@@ -279,6 +281,8 @@ def _collect_round_records(
     cur_game: Optional[Dict[str, Any]] = None
     state = GameState()
     game_active = False
+    skip_current_game = False
+    skip_game_uids = skip_game_uids or set()
     seq = 0
 
     for line in iter_log_lines(log_path, tail=False):
@@ -291,13 +295,20 @@ def _collect_round_records(
         seq += 1
 
         if event_type == "S2C_33_game_start_notify":
-            if game_active and cur_game is not None:
+            if game_active and cur_game is not None and not skip_current_game and not ended_only:
                 cur_game["ended"] = False
                 all_games.append(cur_game)
 
+            gd = data.get("GameData", {})
+            game_uid = str(gd.get("Uid", "") or "")
+            skip_current_game = game_uid in skip_game_uids
+            game_active = True
+            cur_game = None
+            if skip_current_game:
+                continue
+
             state = GameState()
             handle_s2c33(data, state, csv_index, csv_items, silent)
-            game_active = True
             cur_game = {
                 "game_uid": state.uid,
                 "map_id": state.map_id,
@@ -311,7 +322,14 @@ def _collect_round_records(
             }
             continue
 
-        if not game_active or cur_game is None:
+        if not game_active:
+            continue
+        if skip_current_game:
+            if event_type == "S2C_45_game_over_notify":
+                game_active = False
+                skip_current_game = False
+            continue
+        if cur_game is None:
             continue
 
         if event_type == "S2C_37_game_next_round_notify":
@@ -363,7 +381,7 @@ def _collect_round_records(
             game_active = False
             cur_game = None
 
-    if game_active and cur_game is not None:
+    if game_active and cur_game is not None and not ended_only:
         cur_game["players_final"] = copy.deepcopy(state.players)
         cur_game["ended"] = False
         all_games.append(cur_game)
@@ -395,6 +413,35 @@ def export_round_records(
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
     return payload
+
+
+def _load_existing_record_manifest(records_dir: str) -> Dict[str, Any]:
+    manifest_path = os.path.join(records_dir, "manifest.json")
+    if not os.path.exists(manifest_path):
+        return {}
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            manifest = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return manifest if isinstance(manifest, dict) else {}
+
+
+def _existing_exported_game_uids(records_dir: str) -> set:
+    manifest = _load_existing_record_manifest(records_dir)
+    exported = set()
+    for game in manifest.get("games", []):
+        if not isinstance(game, dict):
+            continue
+        if not game.get("ended", False):
+            continue
+        filename = str(game.get("file", "") or "")
+        if filename and not os.path.exists(os.path.join(records_dir, filename)):
+            continue
+        game_uid = str(game.get("game_uid", "") or "")
+        if game_uid:
+            exported.add(game_uid)
+    return exported
 
 
 def _safe_file_token(s: str) -> str:
@@ -577,21 +624,41 @@ def export_round_records_to_directory(
     File name pattern:
       <timestamp>_map<map_id>_uid_<game_uid>.json
     """
+    os.makedirs(records_dir, exist_ok=True)
+    existing_manifest = _load_existing_record_manifest(records_dir)
+    existing_games = [
+        game
+        for game in existing_manifest.get("games", [])
+        if isinstance(game, dict)
+        and game.get("ended", False)
+        and str(game.get("file", "") or "")
+        and os.path.exists(os.path.join(records_dir, str(game.get("file", "") or "")))
+    ]
+    existing_uids = {
+        str(game.get("game_uid", "") or "")
+        for game in existing_games
+        if str(game.get("game_uid", "") or "")
+    }
     payload = _collect_round_records(
         log_path=log_path,
         csv_path=csv_path,
         include_item_events=include_item_events,
         last_game_only=last_game_only,
+        skip_game_uids=existing_uids,
+        ended_only=True,
     )
     games = payload.get("games", [])
-    os.makedirs(records_dir, exist_ok=True)
 
     # 按 started_seq 排序，确保文件名按时间顺序（日志顺序）可排序。
     games_sorted = sorted(games, key=lambda g: int(g.get("started_seq", 0)))
     anchor_timestamp, anchor_time = _game_time_anchor(log_path, games_sorted)
     written_files: List[str] = []
-    manifest_games: List[Dict[str, Any]] = []
-    used_names: set = set()
+    manifest_games: List[Dict[str, Any]] = list(existing_games)
+    used_names: set = {
+        str(game.get("file", "") or "")
+        for game in existing_games
+        if str(game.get("file", "") or "")
+    }
     for idx, game in enumerate(games_sorted, start=1):
         map_id = game.get("map_id", 0)
         game_uid = _safe_file_token(str(game.get("game_uid", "")))
@@ -622,23 +689,51 @@ def export_round_records_to_directory(
             _game_manifest_entry(
                 filename,
                 game,
-                idx,
+                len(manifest_games) + 1,
                 anchor_timestamp=anchor_timestamp,
                 anchor_time=anchor_time,
             )
         )
 
+    def _manifest_sort_key(game: Dict[str, Any]) -> Tuple[int, int, str]:
+        timestamp = str(game.get("timestamp", "") or "")
+        ts_value = int(timestamp) if timestamp.isdigit() else 0
+        started_seq = int(game.get("started_seq", 0) or 0)
+        return ts_value, started_seq, str(game.get("file", "") or "")
+
+    manifest_games = sorted(manifest_games, key=_manifest_sort_key)
+    for order, game in enumerate(manifest_games, start=1):
+        game["order"] = order
+    manifest_files = [
+        str(game.get("file", "") or "")
+        for game in manifest_games
+        if str(game.get("file", "") or "")
+    ]
+    existing_anchor = (
+        existing_manifest.get("real_time_anchor", {})
+        if isinstance(existing_manifest.get("real_time_anchor", {}), dict)
+        else {}
+    )
+    real_time_anchor = {
+        "timestamp": anchor_timestamp or str(existing_anchor.get("timestamp", "") or ""),
+        "time": (
+            _format_local_dt(anchor_time)
+            if anchor_time is not None
+            else str(existing_anchor.get("time", "") or "")
+        ),
+        "source": (
+            "log_mtime"
+            if anchor_time is not None
+            else str(existing_anchor.get("source", "") or "")
+        ),
+    }
     manifest = {
         "schema": "bidking-round-record-manifest-v2",
         "source_log": payload.get("log_path"),
         "csv_path": payload.get("csv_path"),
-        "game_count": len(games_sorted),
-        "files": [os.path.basename(p) for p in written_files],
-        "real_time_anchor": {
-            "timestamp": anchor_timestamp or "",
-            "time": _format_local_dt(anchor_time) if anchor_time is not None else "",
-            "source": "log_mtime" if anchor_time is not None else "",
-        },
+        "game_count": len(manifest_games),
+        "files": manifest_files,
+        "real_time_anchor": real_time_anchor,
         "games": manifest_games,
     }
     manifest_path = os.path.join(records_dir, "manifest.json")
@@ -647,7 +742,10 @@ def export_round_records_to_directory(
 
     return {
         "records_dir": records_dir,
-        "game_count": len(games_sorted),
+        "game_count": len(written_files),
+        "existing_count": len(existing_games),
+        "total_game_count": len(manifest_games),
+        "skipped_existing_count": len(existing_uids),
         "files": written_files,
         "manifest": manifest_path,
     }
