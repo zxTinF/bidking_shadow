@@ -177,7 +177,7 @@ class GridWindowLiveMixin:
         self._apply_scan_history_to_phantoms()
         self._validate_manual_confirmations()
         self._refresh_summary_bars()
-        self._draw()
+        self._draw(update_total=False)
 
     def _refresh_summary_bars(self) -> None:
         self._info_text.set(self._info_summary_text())

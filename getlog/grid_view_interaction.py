@@ -37,7 +37,7 @@ from .grid_view_shared import (
 class GridWindowInteractionMixin:
     """负责画布绘制、鼠标交互和候选弹窗。"""
 
-    def _draw(self) -> None:
+    def _draw(self, update_total: bool = True) -> None:
         """重绘整个网格画布。"""
         canvas = self.canvas
         canvas.delete("all")
@@ -110,7 +110,7 @@ class GridWindowInteractionMixin:
                 fill=preview_color,
                 font=("微软雅黑", 10, "bold"),
             )
-        if hasattr(self, "_total_label"):
+        if update_total and hasattr(self, "_total_label"):
             self._update_total_label()
         self._occupied_for_draw = None
 
@@ -315,7 +315,7 @@ class GridWindowInteractionMixin:
             "cur_row": row,
             "cur_col": col,
         }
-        self._refresh()
+        self._draw(update_total=False)
 
     def _on_right_click(self, event: tk.Event) -> None:
         cx = int(self.canvas.canvasx(event.x))
@@ -329,7 +329,7 @@ class GridWindowInteractionMixin:
             self._phantom_items.pop(uid, None)
             self._manual_shapes.pop(uid, None)
             self._refresh_summary_bars()
-            self._draw()
+            self._draw(update_total=False)
 
     def _find_resize_handle_at(self, cx: int, cy: int) -> Optional[Tuple[str, str]]:
         hz = RESIZE_HANDLE_W + 2
@@ -382,7 +382,7 @@ class GridWindowInteractionMixin:
             if row != pds["cur_row"] or col != pds["cur_col"]:
                 pds["cur_row"] = row
                 pds["cur_col"] = col
-                self._draw()
+                self._draw(update_total=False)
             return
         if not self._drag_state:
             return
@@ -462,8 +462,7 @@ class GridWindowInteractionMixin:
         new_shape = (new_w, new_h, new_dc, new_dr)
         if self._manual_shapes.get(uid) != new_shape:
             self._manual_shapes[uid] = new_shape
-            self._refresh_summary_bars()
-            self._draw()
+            self._draw(update_total=False)
 
     def _on_drag_end(self, event: tk.Event) -> None:
         if self._phantom_draw_state is not None:
@@ -475,9 +474,11 @@ class GridWindowInteractionMixin:
             self._create_phantom(min_r, min_c, max_c - min_c + 1, max_r - min_r + 1)
             self._phantom_draw_state = None
             self._refresh_summary_bars()
-            self._draw()
+            self._draw(update_total=False)
         elif self._drag_state:
             self._drag_state = None
+            self._refresh_summary_bars()
+            self._draw(update_total=False)
 
     def _find_item_at(self, row: int, col: int) -> Optional[str]:
         for uid, k in self.state.items.items():

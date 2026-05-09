@@ -116,6 +116,13 @@ class GridWindowCoreMixin:
             and k.manual_confirm_item_id is None
         )
 
+    def _is_gold_red_candidate_range(self, uid: str, k: ItemKnowledge) -> bool:
+        candidates = self._candidate_items_for_grid(uid, k)
+        if not candidates:
+            return False
+        qualities = {item.quality for item in candidates}
+        return bool(qualities) and qualities.issubset({5, 6})
+
     def _effective_quality_for_constraints(self, k: ItemKnowledge) -> Optional[int]:
         if k.manual_quality in (5, 6):
             return k.manual_quality
@@ -676,7 +683,7 @@ class GridWindowCoreMixin:
 
     def _refresh_autofill_view_without_estimate(self) -> None:
         self._info_text.set(self._info_summary_text())
-        self._draw()
+        self._draw(update_total=False)
 
     def _apply_autofill_solution(self, solution_id: int) -> None:
         solution = next(
@@ -999,7 +1006,7 @@ class GridWindowCoreMixin:
                 quality_stats[quality]["cells"] += cells
                 if quality in (5, 6):
                     gold_red_cell_set.update(self._rect_cells(row, col, w, h))
-            elif self._is_high_quality_range(k):
+            elif self._is_high_quality_range(k) or self._is_gold_red_candidate_range(uid, k):
                 gold_red_cell_set.update(self._rect_cells(row, col, w, h))
 
         avg_cells = total_cells / item_count if item_count else 0.0
