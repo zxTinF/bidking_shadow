@@ -152,6 +152,7 @@ class GridWindowLiveMixin:
         self._manual_shapes.clear()
         self._autofill_solutions = []
         self._autofill_next_id = 1
+        self._secondary_fill_next_id = 1
         for var in self._input_vars.values():
             var.set("")
         self._captured_input_values = {}
@@ -192,12 +193,13 @@ class GridWindowLiveMixin:
 
     def _update_total_label(self) -> None:
         estimate = self._calc_grid_total_estimate_price()
+        estimate_text = self._estimate_display_text(estimate)
         floor_total = self._calc_grid_floor_price()
         empty_count = self._compute_empty_zone_count()
         if empty_count and empty_count > 0:
             self._total_label.config(
                 text=(
-                    f"估算总价格: ¥{estimate:,.0f}    "
+                    f"估算总价格: {estimate_text}    "
                     f"保底: ¥{floor_total:,.0f}    "
                     f"空置: {empty_count} 格"
                 )
@@ -205,7 +207,7 @@ class GridWindowLiveMixin:
         else:
             self._total_label.config(
                 text=(
-                    f"估算总价格: ¥{estimate:,.0f}    "
+                    f"估算总价格: {estimate_text}    "
                     f"保底: ¥{floor_total:,.0f}"
                 )
             )

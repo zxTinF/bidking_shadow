@@ -106,9 +106,20 @@ class GridWindowUiMixin:
         bar = tk.Frame(self.root, bg="#222233", pady=5)
         bar.pack(fill="x", padx=8)
         estimate = self._calc_grid_total_estimate_price()
+        tk.Button(
+            bar,
+            text="估价",
+            command=self._update_total_label,
+            bg="#3f6f99",
+            fg="#ffffff",
+            relief="flat",
+            padx=10,
+            pady=2,
+            font=("Microsoft YaHei UI", 9),
+        ).pack(side="right", padx=(0, 8))
         self._total_label = tk.Label(
             bar,
-            text=f"估算总价格: ¥{estimate:,.0f}",
+            text=f"估算总价格: {self._estimate_display_text(estimate)}",
             bg="#222233",
             fg="#e8d080",
             font=("Microsoft YaHei UI", 10, "bold"),
@@ -128,10 +139,11 @@ class GridWindowUiMixin:
     @staticmethod
     def _sanitize_decimal_var(var: tk.StringVar) -> None:
         raw = var.get()
+        normalized = raw.replace("。", ".")
         chars = []
         seen_dot = False
         decimals = 0
-        for ch in raw:
+        for ch in normalized:
             if ch.isdigit():
                 if seen_dot:
                     if decimals >= 2:
@@ -156,6 +168,7 @@ class GridWindowUiMixin:
         return proposed == "" or proposed.isdigit()
 
     def _validate_gold_avg_cells(self, proposed: str) -> bool:
+        proposed = proposed.replace("。", ".")
         if proposed == "":
             return True
         if proposed.count(".") > 1:
@@ -170,7 +183,7 @@ class GridWindowUiMixin:
     def _collect_input_values(self) -> Dict[str, object]:
         values: Dict[str, object] = {}
         for key, var in self._input_vars.items():
-            raw = var.get().strip()
+            raw = var.get().strip().replace("。", ".")
             if key == "gold_avg_cells":
                 values[key] = float(raw) if raw and raw != "." else None
             else:
@@ -180,7 +193,18 @@ class GridWindowUiMixin:
     def _confirm_input_values(self) -> None:
         """记录输入区当前值，供后续人工估算参考。"""
         self._sanitize_registered_input_vars()
-        self._captured_input_values = self._collect_input_values()
+        self._captured_input_values = self._resolved_gold_input_values(
+            self._collect_input_values()
+        )
+        count = self._captured_input_values.get("gold_count")
+        cells = self._captured_input_values.get("gold_total_cells")
+        avg = self._captured_input_values.get("gold_avg_cells")
+        if isinstance(count, int):
+            self._gold_count_var.set(str(count))
+        if isinstance(cells, int):
+            self._gold_total_cells_var.set(str(cells))
+        if isinstance(avg, (int, float)):
+            self._gold_avg_cells_var.set(f"{float(avg):.2f}")
         parts: List[str] = []
         for key, val in self._captured_input_values.items():
             label = self._input_labels.get(key, key)
@@ -324,7 +348,38 @@ class GridWindowUiMixin:
             padx=10,
             pady=3,
             font=("Microsoft YaHei UI", 9),
-        ).pack(anchor="w")
+        ).pack(side="left", anchor="w")
+        tk.Button(
+            left,
+            text="二次填充",
+            command=self._try_secondary_autofill_high_quality,
+            bg="#5b5840",
+            fg="#ffffff",
+            relief="flat",
+            padx=10,
+            pady=3,
+            font=("Microsoft YaHei UI", 9),
+        ).pack(side="left", anchor="w", padx=(8, 0))
+        tk.Button(
+            left,
+            text="清空填充",
+            command=self._clear_autofill_view,
+            bg="#65424a",
+            fg="#ffffff",
+            relief="flat",
+            padx=10,
+            pady=3,
+            font=("Microsoft YaHei UI", 9),
+        ).pack(side="left", anchor="w", padx=(8, 0))
+        tk.Label(
+            left,
+            text="用法：先尝试填充快速补空格，结果不一定准确；\n手动增删后，可点二次填充重新调整。",
+            bg="#2a2a3a",
+            fg="#c8cedf",
+            font=("Microsoft YaHei UI", 9),
+            wraplength=440,
+            justify="left",
+        ).pack(side="left", anchor="w", padx=(10, 0))
 
     def _build_nav_bar(self) -> None:
         """快照回放模式下的回合导航栏。"""

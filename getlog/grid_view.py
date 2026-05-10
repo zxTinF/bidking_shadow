@@ -56,6 +56,7 @@ class GridWindow(
         self._phantom_draw_state: Optional[dict] = None
         self._autofill_solutions: List[dict] = []
         self._autofill_next_id: int = 1
+        self._secondary_fill_next_id: int = 1
         self._autofill_last_count: int = 0
         self._input_vars: Dict[str, tk.StringVar] = {}
         self._input_labels: Dict[str, str] = {}

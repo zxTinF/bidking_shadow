@@ -11,7 +11,13 @@ from .grid_view_shared import (
     MIN_ROUND_SHOW_EMPTY,
     _CAT_SHORT,
 )
-from .item_db import candidate_probabilities, map_category_ratios, query_item
+from .item_db import (
+    MAP_TO_TIER_NEST,
+    candidate_probabilities,
+    map_category_ratios,
+    normalize_map_id,
+    query_item,
+)
 from .models import CsvItem, ItemKnowledge
 from .posterior_estimator import (
     WeightedValue,
@@ -291,19 +297,49 @@ class GridWindowCoreMixin:
         return est
 
     def _gold_count_target(self) -> Optional[int]:
-        values = getattr(self, "_captured_input_values", {})
+        values = self._resolved_gold_input_values()
         target = values.get("gold_count") if isinstance(values, dict) else None
         return target if isinstance(target, int) and target >= 0 else None
 
     def _gold_cells_target(self) -> Optional[int]:
-        values = getattr(self, "_captured_input_values", {})
+        values = self._resolved_gold_input_values()
         target = values.get("gold_total_cells") if isinstance(values, dict) else None
         return target if isinstance(target, int) and target >= 0 else None
 
     def _gold_avg_target(self) -> Optional[float]:
-        values = getattr(self, "_captured_input_values", {})
+        values = self._resolved_gold_input_values()
         target = values.get("gold_avg_cells") if isinstance(values, dict) else None
         return target if isinstance(target, (int, float)) and target > 0 else None
+
+    def _resolved_gold_input_values(
+        self,
+        values: Optional[Dict[str, object]] = None,
+    ) -> Dict[str, object]:
+        raw = dict(
+            values
+            if values is not None
+            else getattr(self, "_captured_input_values", {})
+        )
+
+        count = raw.get("gold_count")
+        cells = raw.get("gold_total_cells")
+        avg = raw.get("gold_avg_cells")
+        count = count if isinstance(count, int) and count >= 0 else None
+        cells = cells if isinstance(cells, int) and cells >= 0 else None
+        avg = float(avg) if isinstance(avg, (int, float)) and avg > 0 else None
+
+        if count is not None and cells is not None and avg is None and count > 0:
+            avg = cells / count
+        elif count is not None and avg is not None and cells is None:
+            cells = int(round(count * avg))
+        elif cells is not None and avg is not None and count is None:
+            count = int(round(cells / avg))
+
+        return {
+            "gold_count": count,
+            "gold_total_cells": cells,
+            "gold_avg_cells": avg,
+        }
 
     def _gold_target_constraints(
         self,
@@ -371,6 +407,13 @@ class GridWindowCoreMixin:
         for uid in [uid for uid in self._phantom_items if uid.startswith("autofill_")]:
             self._phantom_items.pop(uid, None)
             self._manual_shapes.pop(uid, None)
+
+    def _clear_autofill_view(self) -> None:
+        self._clear_autofill_phantoms()
+        self._autofill_solutions = []
+        self._autofill_next_id = 1
+        self._secondary_fill_next_id = 1
+        self._refresh_autofill_view_with_estimate()
 
     def _empty_zone_cells(self) -> Set[Tuple[int, int]]:
         max_box_id = self._empty_zone_max_box_id()
@@ -632,24 +675,29 @@ class GridWindowCoreMixin:
                 self._phantom_items[uid].manual_quality = 6
             return
 
+        states: Dict[Tuple[int, int], Tuple[float, int]] = {
+            (known_count, known_cells): (0.0, 0)
+        }
+        for idx, uid in enumerate(uids):
+            w, h, _col, _row = self._manual_shapes[uid]
+            prior = priors.get((w, h), {"q5": 0.5, "q6": 0.5})
+            area = w * h
+            next_states: Dict[Tuple[int, int], Tuple[float, int]] = {}
+            for (q5_count, q5_cells), (score, mask) in states.items():
+                q6_key = (q5_count, q5_cells)
+                q6_score = score + prior.get("q6", 0.0)
+                if q6_score > next_states.get(q6_key, (float("-inf"), 0))[0]:
+                    next_states[q6_key] = (q6_score, mask)
+
+                q5_key = (q5_count + 1, q5_cells + area)
+                q5_score = score + prior.get("q5", 0.0)
+                if q5_score > next_states.get(q5_key, (float("-inf"), 0))[0]:
+                    next_states[q5_key] = (q5_score, mask | (1 << idx))
+            states = next_states
+
         best_mask = None
         best_score = float("-inf")
-        n = len(uids)
-        if n > 18:
-            return
-        for mask in range(1 << n):
-            q5_count = known_count
-            q5_cells = known_cells
-            score = 0.0
-            for idx, uid in enumerate(uids):
-                w, h, _col, _row = self._manual_shapes[uid]
-                prior = priors.get((w, h), {"q5": 0.5, "q6": 0.5})
-                if mask & (1 << idx):
-                    q5_count += 1
-                    q5_cells += w * h
-                    score += prior.get("q5", 0.0)
-                else:
-                    score += prior.get("q6", 0.0)
+        for (q5_count, q5_cells), (score, mask) in states.items():
             if any(
                 (count is None or q5_count == count)
                 and (cells is None or q5_cells == cells)
@@ -681,8 +729,135 @@ class GridWindowCoreMixin:
         self._assign_autofill_manual_qualities(created, priors)
         return created
 
+    def _current_autofill_rects(self) -> List[Tuple[int, int, int, int]]:
+        rects: List[Tuple[int, int, int, int]] = []
+        for uid in sorted(self._phantom_items):
+            if not uid.startswith("autofill_") or uid not in self._manual_shapes:
+                continue
+            w, h, col, row = self._manual_shapes[uid]
+            rects.append((row, col, w, h))
+        return sorted(rects)
+
+    @staticmethod
+    def _autofill_solution_key(
+        rects: List[Tuple[int, int, int, int]]
+    ) -> Tuple[Tuple[int, int, int, int], ...]:
+        return tuple(sorted(rects))
+
+    def _autofill_rects_match_gold_constraints(
+        self,
+        rects: List[Tuple[int, int, int, int]],
+    ) -> bool:
+        known_count, known_cells = self._known_gold_stats()
+        optional_cells = [w * h for _row, _col, w, h in rects]
+        constraints = self._gold_target_constraints(
+            known_count,
+            known_cells,
+            optional_cells,
+        )
+        if constraints is None:
+            return True
+        if not constraints:
+            return False
+
+        possible: Set[Tuple[int, int]] = {(known_count, known_cells)}
+        for cells in optional_cells:
+            possible |= {
+                (count + 1, total_cells + cells)
+                for count, total_cells in possible
+            }
+        return any(
+            (target_count is None or count == target_count)
+            and (target_cells is None or total_cells == target_cells)
+            for count, total_cells in possible
+            for target_count, target_cells in constraints
+        )
+
+    def _rank_secondary_autofill_solutions(
+        self,
+        rect_solutions: List[List[Tuple[int, int, int, int]]],
+        current_rects: List[Tuple[int, int, int, int]],
+        priors: Dict[Tuple[int, int], Dict[str, float]],
+    ) -> List[List[Tuple[int, int, int, int]]]:
+        current_key = self._autofill_solution_key(current_rects)
+        current_count = len(current_rects)
+        seen: Set[Tuple[Tuple[int, int, int, int], ...]] = set()
+
+        def _collect(allow_smaller_count: bool) -> List[List[Tuple[int, int, int, int]]]:
+            selected: List[List[Tuple[int, int, int, int]]] = []
+            for rects in rect_solutions:
+                if len(rects) > current_count:
+                    continue
+                if not allow_smaller_count and len(rects) != current_count:
+                    continue
+                key = self._autofill_solution_key(rects)
+                if key == current_key or key in seen:
+                    continue
+                if not self._autofill_rects_match_gold_constraints(rects):
+                    continue
+                seen.add(key)
+                selected.append(rects)
+            return selected
+
+        selected = _collect(allow_smaller_count=False)
+        if not selected:
+            selected = _collect(allow_smaller_count=True)
+
+        current_set = set(current_key)
+
+        def _score(rects: List[Tuple[int, int, int, int]]) -> tuple:
+            rect_set = set(rects)
+            distance = len(current_set.symmetric_difference(rect_set))
+            area_profile = sorted((w * h, max(w, h), min(w, h)) for _r, _c, w, h in rects)
+            prior_score = sum(priors.get((w, h), {}).get("total", 0.0) for _r, _c, w, h in rects)
+            return (distance, tuple(reversed(area_profile)), prior_score)
+
+        return sorted(selected, key=_score, reverse=True)
+
+    def _try_secondary_autofill_high_quality(self) -> None:
+        current_rects = self._current_autofill_rects()
+        if not current_rects:
+            self._refresh_autofill_view_without_estimate()
+            return
+
+        cells: Set[Tuple[int, int]] = set()
+        for row, col, w, h in current_rects:
+            cells.update(self._rect_cells(row, col, w, h))
+        if not cells:
+            self._refresh_autofill_view_without_estimate()
+            return
+
+        priors = self._high_quality_shape_priors()
+        rect_solutions = self._autofill_rectangles_for_cells(
+            cells,
+            priors,
+            max_solutions=24,
+        )
+        selected = self._rank_secondary_autofill_solutions(
+            rect_solutions,
+            current_rects,
+            priors,
+        )
+        if not selected:
+            self._refresh_autofill_view_with_estimate()
+            return
+
+        next_id = max(1, getattr(self, "_secondary_fill_next_id", 1))
+        idx = (next_id - 1) % len(selected)
+        self._secondary_fill_next_id = idx + 2
+        if self._secondary_fill_next_id > len(selected):
+            self._secondary_fill_next_id = 1
+
+        self._clear_autofill_phantoms()
+        self._create_autofill_phantoms(selected[idx], priors)
+        self._refresh_autofill_view_with_estimate()
+
     def _refresh_autofill_view_without_estimate(self) -> None:
         self._info_text.set(self._info_summary_text())
+        self._draw(update_total=False)
+
+    def _refresh_autofill_view_with_estimate(self) -> None:
+        self._refresh_summary_bars()
         self._draw(update_total=False)
 
     def _apply_autofill_solution(self, solution_id: int) -> None:
@@ -695,10 +870,11 @@ class GridWindowCoreMixin:
         self._clear_autofill_phantoms()
         priors = self._high_quality_shape_priors()
         self._create_autofill_phantoms(solution["rects"], priors)
-        self._refresh_autofill_view_without_estimate()
+        self._refresh_autofill_view_with_estimate()
 
     def _try_autofill_hidden_high_quality(self) -> None:
         self._clear_autofill_phantoms()
+        self._secondary_fill_next_id = 1
         cells = self._empty_zone_cells()
         if not cells:
             self._autofill_solutions = []
@@ -790,6 +966,37 @@ class GridWindowCoreMixin:
         w, h = self._effective_shape_wh(uid, k)
         return w * h
 
+    def _zero_estimate_reason(
+        self,
+        item_rows: List[Tuple[str, ItemKnowledge]],
+        distributions: List[List[WeightedValue]],
+        constraints: Optional[List[Tuple[Optional[int], Optional[int]]]],
+    ) -> str:
+        if not item_rows:
+            return "没有可估物品，请先解析或标记"
+        if constraints == []:
+            return "金约束不匹配，请检查输入"
+        if not any(distributions):
+            return "候选为空，请放宽筛选"
+        if (
+            any(value is not None for value in self._resolved_gold_input_values().values())
+            and getattr(self, "_estimate_last", None) is not None
+            and self._estimate_last.item_count == 0
+        ):
+            return "金约束不匹配，请检查输入"
+        map_id = normalize_map_id(self.state.map_id)
+        if map_id not in MAP_TO_TIER_NEST:
+            return "地图未适配，请补充数据"
+        if self._compute_empty_zone_count():
+            return "仍有空格，请尝试填充"
+        return "候选为空，请放宽筛选"
+
+    def _estimate_display_text(self, estimate: float) -> str:
+        if estimate > 0:
+            return f"¥{estimate:,.0f}"
+        reason = getattr(self, "_estimate_zero_reason", "") or "候选为空，请放宽筛选"
+        return reason
+
     def _calc_grid_total_estimate_price(self, sample_count: int = 2048) -> float:
         item_rows: List[Tuple[str, ItemKnowledge]] = list(self.state.items.items())
         item_rows.extend(self._phantom_items.items())
@@ -819,6 +1026,11 @@ class GridWindowCoreMixin:
             target_constraints=constraints,
         )
         self._estimate_last = estimate
+        self._estimate_zero_reason = (
+            self._zero_estimate_reason(item_rows, distributions, constraints)
+            if estimate.estimate <= 0
+            else ""
+        )
         return estimate.estimate
 
     def _calc_grid_total_price(self) -> float:
@@ -1042,6 +1254,19 @@ class GridWindowCoreMixin:
             avg = cells / count if count else 0.0
             return f"已知{label}: {count}件 {cells}格 {avg:.2f}均格"
 
+        def _gold_quality_text() -> str:
+            values = self._resolved_gold_input_values()
+            has_input = any(values.get(key) is not None for key in values)
+            if not has_input:
+                return _quality_text("金", 5)
+            count = values.get("gold_count")
+            cells = values.get("gold_total_cells")
+            avg = values.get("gold_avg_cells")
+            count_text = str(count) if isinstance(count, int) else "-"
+            cells_text = str(cells) if isinstance(cells, int) else "-"
+            avg_text = f"{float(avg):.2f}" if isinstance(avg, (int, float)) else "-"
+            return f"已知金: {count_text}件 {cells_text}格 {avg_text}均格"
+
         lines = [
             f"地图: {self.state.map_id}   第 {self.state.current_round} 回合   {top_cats}",
             (
@@ -1056,7 +1281,7 @@ class GridWindowCoreMixin:
             "   ".join(
                 (
                     _quality_text("红", 6),
-                    _quality_text("金", 5),
+                    _gold_quality_text(),
                     f"金红总共格数: {gold_red_cells}格",
                 )
             ),
