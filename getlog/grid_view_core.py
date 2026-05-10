@@ -1355,7 +1355,7 @@ class GridWindowCoreMixin:
             or possible_cells_for_candidate_shapes is None
         ):
             return None
-        if self.state.current_round < 4:
+        if self.state.current_round < MIN_ROUND_SHOW_EMPTY:
             return None
         cache_key = self._hidden_analysis_signature()
         if getattr(self, "_hidden_analysis_cache_key", None) == cache_key:
