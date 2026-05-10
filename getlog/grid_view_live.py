@@ -192,7 +192,7 @@ class GridWindowLiveMixin:
                     self._valid_manual_confirm_item(uid, k)
 
     def _update_total_label(self) -> None:
-        estimate = self._calc_grid_total_estimate_price()
+        estimate = self._calc_selected_estimate_price()
         estimate_text = self._estimate_display_text(estimate)
         floor_total = self._calc_grid_floor_price()
         empty_count = self._compute_empty_zone_count()

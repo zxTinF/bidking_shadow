@@ -105,9 +105,16 @@ class GridWindowUiMixin:
         """构建图例和总价展示区。"""
         bar = tk.Frame(self.root, bg="#222233", pady=5)
         bar.pack(fill="x", padx=8)
-        estimate = self._calc_grid_total_estimate_price()
+        controls_row = tk.Frame(bar, bg="#222233")
+        controls_row.pack(fill="x")
+        total_row = tk.Frame(bar, bg="#222233")
+        total_row.pack(fill="x", pady=(4, 0))
+        self._estimate_method_var = tk.StringVar(
+            value=self.ESTIMATE_METHOD_EXPECTED
+        )
+        estimate = self._calc_selected_estimate_price()
         tk.Button(
-            bar,
+            controls_row,
             text="估价",
             command=self._update_total_label,
             bg="#3f6f99",
@@ -117,8 +124,38 @@ class GridWindowUiMixin:
             pady=2,
             font=("Microsoft YaHei UI", 9),
         ).pack(side="right", padx=(0, 8))
+        method_box = tk.OptionMenu(
+            controls_row,
+            self._estimate_method_var,
+            *self.ESTIMATE_METHODS,
+            command=lambda _value: self._update_total_label(),
+        )
+        method_box.config(
+            bg="#1f2233",
+            fg="#dfe7ff",
+            activebackground="#42577a",
+            activeforeground="#ffffff",
+            highlightbackground="#4b4b65",
+            highlightcolor="#4b4b65",
+            relief="flat",
+            borderwidth=0,
+            width=16,
+            padx=6,
+            pady=2,
+            font=("Microsoft YaHei UI", 9),
+        )
+        method_box["menu"].config(
+            bg="#1f2233",
+            fg="#dfe7ff",
+            activebackground="#3f6f99",
+            activeforeground="#ffffff",
+            relief="flat",
+            borderwidth=0,
+            font=("Microsoft YaHei UI", 9),
+        )
+        method_box.pack(side="right", padx=(0, 8))
         self._total_label = tk.Label(
-            bar,
+            total_row,
             text=f"估算总价格: {self._estimate_display_text(estimate)}",
             bg="#222233",
             fg="#e8d080",
@@ -373,11 +410,11 @@ class GridWindowUiMixin:
         ).pack(side="left", anchor="w", padx=(8, 0))
         tk.Label(
             left,
-            text="用法：先尝试填充快速补空格，结果不一定准确；\n手动增删后，可点二次填充重新调整。",
+            text="先尝试填充快速补空格，手动增删后再使用二次填充；\n填充和二次填充可能性非常多，结果不一定准确，更建议手动调整。",
             bg="#2a2a3a",
             fg="#c8cedf",
             font=("Microsoft YaHei UI", 9),
-            wraplength=440,
+            wraplength=290,
             justify="left",
         ).pack(side="left", anchor="w", padx=(10, 0))
 

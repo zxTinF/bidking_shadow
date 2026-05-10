@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """GridWindow core logic."""
 
+import math
 import time
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -21,7 +22,6 @@ from .item_db import (
 from .models import CsvItem, ItemKnowledge
 from .posterior_estimator import (
     WeightedValue,
-    estimate_total_posterior,
     price_likelihood,
 )
 
@@ -39,6 +39,17 @@ except Exception:
 
 class GridWindowCoreMixin:
     """Methods that do not directly build Tk widgets."""
+
+    ESTIMATE_METHOD_EXPECTED = "1.候选价值期望"
+    ESTIMATE_METHOD_VARIANCE_ADJUSTED = "2.方差校正期望"
+    ESTIMATE_METHOD_TRIMMED_MEAN = "3.截尾均值估价"
+    ESTIMATE_METHOD_85_PERCENT = "4.85%期望估价"
+    ESTIMATE_METHODS = (
+        ESTIMATE_METHOD_EXPECTED,
+        ESTIMATE_METHOD_VARIANCE_ADJUSTED,
+        ESTIMATE_METHOD_TRIMMED_MEAN,
+        ESTIMATE_METHOD_85_PERCENT,
+    )
 
     def _recalc_vis_rows(self) -> None:
         self.vis_rows = GRID_ROWS
@@ -529,13 +540,22 @@ class GridWindowCoreMixin:
             return sorted(ordered)
 
         def _shape_orders() -> List[List[Tuple[int, int]]]:
-            return [
+            orders: List[List[Tuple[int, int]]] = [
                 shapes,
                 sorted(shapes, key=lambda wh: (wh[0] * wh[1], wh[0], wh[1], priors[wh]["total"]), reverse=True),
                 sorted(shapes, key=lambda wh: (wh[0] * wh[1], wh[1], wh[0], priors[wh]["total"]), reverse=True),
                 sorted(shapes, key=lambda wh: (wh[0] * wh[1], priors[wh]["q5"], priors[wh]["total"]), reverse=True),
                 sorted(shapes, key=lambda wh: (wh[0] * wh[1], priors[wh]["q6"], priors[wh]["total"]), reverse=True),
             ]
+            deduped: List[List[Tuple[int, int]]] = []
+            seen_orders: Set[Tuple[Tuple[int, int], ...]] = set()
+            for order in orders:
+                key = tuple(order)
+                if key in seen_orders:
+                    continue
+                seen_orders.add(key)
+                deduped.append(order)
+            return deduped
 
         def _placements_for_anchor(
             anchor: Tuple[int, int],
@@ -583,7 +603,12 @@ class GridWindowCoreMixin:
                 anchor = next((cell for cell in scan_order if cell in remaining), None)
                 if anchor is None:
                     anchor = min(remaining)
-                options = _placements_for_anchor(anchor, shape_order, remaining, placement_mode)
+                options = _placements_for_anchor(
+                    anchor,
+                    shape_order,
+                    remaining,
+                    placement_mode,
+                )
                 if options:
                     row, col, w, h = options[0]
                 else:
@@ -606,7 +631,11 @@ class GridWindowCoreMixin:
                 for placement_mode in placement_modes:
                     if time.monotonic() > deadline:
                         break
-                    solution = _greedy_solution(scan_order, shape_order, placement_mode)
+                    solution = _greedy_solution(
+                        scan_order,
+                        shape_order,
+                        placement_mode,
+                    )
                     if solution:
                         _add_solution(solution)
 
@@ -781,27 +810,21 @@ class GridWindowCoreMixin:
     ) -> List[List[Tuple[int, int, int, int]]]:
         current_key = self._autofill_solution_key(current_rects)
         current_count = len(current_rects)
+        current_cells = sum(w * h for _row, _col, w, h in current_rects)
+        max_count = min(current_cells, max(current_count + 6, current_count * 2))
         seen: Set[Tuple[Tuple[int, int, int, int], ...]] = set()
 
-        def _collect(allow_smaller_count: bool) -> List[List[Tuple[int, int, int, int]]]:
-            selected: List[List[Tuple[int, int, int, int]]] = []
-            for rects in rect_solutions:
-                if len(rects) > current_count:
-                    continue
-                if not allow_smaller_count and len(rects) != current_count:
-                    continue
-                key = self._autofill_solution_key(rects)
-                if key == current_key or key in seen:
-                    continue
-                if not self._autofill_rects_match_gold_constraints(rects):
-                    continue
-                seen.add(key)
-                selected.append(rects)
-            return selected
-
-        selected = _collect(allow_smaller_count=False)
-        if not selected:
-            selected = _collect(allow_smaller_count=True)
+        selected: List[List[Tuple[int, int, int, int]]] = []
+        for rects in rect_solutions:
+            if len(rects) > max_count:
+                continue
+            key = self._autofill_solution_key(rects)
+            if key == current_key or key in seen:
+                continue
+            if not self._autofill_rects_match_gold_constraints(rects):
+                continue
+            seen.add(key)
+            selected.append(rects)
 
         current_set = set(current_key)
 
@@ -810,7 +833,8 @@ class GridWindowCoreMixin:
             distance = len(current_set.symmetric_difference(rect_set))
             area_profile = sorted((w * h, max(w, h), min(w, h)) for _r, _c, w, h in rects)
             prior_score = sum(priors.get((w, h), {}).get("total", 0.0) for _r, _c, w, h in rects)
-            return (distance, tuple(reversed(area_profile)), prior_score)
+            same_count_bonus = 1 if len(rects) == current_count else 0
+            return (same_count_bonus, -len(rects), distance, tuple(reversed(area_profile)), prior_score)
 
         return sorted(selected, key=_score, reverse=True)
 
@@ -831,7 +855,7 @@ class GridWindowCoreMixin:
         rect_solutions = self._autofill_rectangles_for_cells(
             cells,
             priors,
-            max_solutions=24,
+            max_solutions=48,
         )
         selected = self._rank_secondary_autofill_solutions(
             rect_solutions,
@@ -842,14 +866,9 @@ class GridWindowCoreMixin:
             self._refresh_autofill_view_with_estimate()
             return
 
-        next_id = max(1, getattr(self, "_secondary_fill_next_id", 1))
-        idx = (next_id - 1) % len(selected)
-        self._secondary_fill_next_id = idx + 2
-        if self._secondary_fill_next_id > len(selected):
-            self._secondary_fill_next_id = 1
-
+        priors = self._high_quality_shape_priors()
         self._clear_autofill_phantoms()
-        self._create_autofill_phantoms(selected[idx], priors)
+        self._create_autofill_phantoms(selected[0], priors)
         self._refresh_autofill_view_with_estimate()
 
     def _refresh_autofill_view_without_estimate(self) -> None:
@@ -978,10 +997,15 @@ class GridWindowCoreMixin:
             return "金约束不匹配，请检查输入"
         if not any(distributions):
             return "候选为空，请放宽筛选"
+        estimate_last = getattr(self, "_estimate_last", None)
+        if isinstance(estimate_last, dict):
+            estimate_item_count = estimate_last.get("item_count")
+        else:
+            estimate_item_count = getattr(estimate_last, "item_count", None)
         if (
             any(value is not None for value in self._resolved_gold_input_values().values())
-            and getattr(self, "_estimate_last", None) is not None
-            and self._estimate_last.item_count == 0
+            and estimate_last is not None
+            and estimate_item_count == 0
         ):
             return "金约束不匹配，请检查输入"
         map_id = normalize_map_id(self.state.map_id)
@@ -997,14 +1021,97 @@ class GridWindowCoreMixin:
         reason = getattr(self, "_estimate_zero_reason", "") or "候选为空，请放宽筛选"
         return reason
 
-    def _calc_grid_total_estimate_price(self, sample_count: int = 2048) -> float:
+    def _selected_estimate_method(self) -> str:
+        var = getattr(self, "_estimate_method_var", None)
+        value = var.get() if var is not None else ""
+        if value in self.ESTIMATE_METHODS:
+            return value
+        return self.ESTIMATE_METHOD_EXPECTED
+
+    def _calc_selected_estimate_price(self) -> float:
+        method = self._selected_estimate_method()
+        if method == self.ESTIMATE_METHOD_VARIANCE_ADJUSTED:
+            return self._calc_grid_variance_adjusted_estimate_price()
+        if method == self.ESTIMATE_METHOD_TRIMMED_MEAN:
+            return self._calc_grid_trimmed_mean_estimate_price()
+        if method == self.ESTIMATE_METHOD_85_PERCENT:
+            return self._calc_grid_85_percent_estimate_price()
+        if method == self.ESTIMATE_METHOD_EXPECTED:
+            return self._calc_grid_total_estimate_price()
+        return self._calc_grid_total_estimate_price()
+
+    @staticmethod
+    def _distribution_expected_value(dist: List[WeightedValue]) -> Optional[float]:
+        total_weight = sum(max(0.0, value.weight) for value in dist)
+        if total_weight <= 0:
+            return None
+        return (
+            sum(value.value * max(0.0, value.weight) for value in dist)
+            / total_weight
+        )
+
+    @staticmethod
+    def _distribution_mean_variance(
+        dist: List[WeightedValue],
+    ) -> Optional[Tuple[float, float]]:
+        total_weight = sum(max(0.0, value.weight) for value in dist)
+        if total_weight <= 0:
+            return None
+        mean = (
+            sum(value.value * max(0.0, value.weight) for value in dist)
+            / total_weight
+        )
+        variance = (
+            sum(
+                ((value.value - mean) ** 2) * max(0.0, value.weight)
+                for value in dist
+            )
+            / total_weight
+        )
+        return mean, variance
+
+    @staticmethod
+    def _distribution_upper_trimmed_expected_value(
+        dist: List[WeightedValue],
+        trim_ratio: float = 0.05,
+    ) -> Optional[float]:
+        weighted = [
+            (value.value, max(0.0, value.weight))
+            for value in dist
+            if value.weight > 0
+        ]
+        total_weight = sum(weight for _value, weight in weighted)
+        if total_weight <= 0:
+            return None
+        keep_weight = total_weight * max(0.0, min(1.0, 1.0 - trim_ratio))
+        if keep_weight <= 0:
+            return None
+
+        total = 0.0
+        used = 0.0
+        for value, weight in sorted(weighted, key=lambda pair: pair[0]):
+            if used >= keep_weight:
+                break
+            take = min(weight, keep_weight - used)
+            total += value * take
+            used += take
+        if used <= 0:
+            return None
+        return total / used
+
+    def _grid_value_distributions(
+        self,
+    ) -> Tuple[
+        List[Tuple[str, ItemKnowledge]],
+        List[List[WeightedValue]],
+        Optional[List[Tuple[Optional[int], Optional[int]]]],
+    ]:
         item_rows: List[Tuple[str, ItemKnowledge]] = list(self.state.items.items())
         item_rows.extend(self._phantom_items.items())
         distributions = [
             self._posterior_distribution_for_item(uid, k)
             for uid, k in item_rows
         ]
-        target = self._gold_count_target()
         constraints = self._gold_target_constraints(
             known_count=0,
             known_cells=0,
@@ -1018,20 +1125,130 @@ class GridWindowCoreMixin:
                 if any(value.quality == 5 for value in dist)
             ],
         )
-        estimate = estimate_total_posterior(
-            distributions,
-            sample_count=sample_count,
-            target_quality=5 if constraints is not None else None,
-            target_count=target,
-            target_constraints=constraints,
-        )
-        self._estimate_last = estimate
+        return item_rows, distributions, constraints
+
+    def _calc_grid_total_estimate_price(self) -> float:
+        item_rows, distributions, constraints = self._grid_value_distributions()
+
+        total = 0.0
+        estimated_count = 0
+        for dist in distributions:
+            expected = self._distribution_expected_value(dist)
+            if expected is None:
+                continue
+            total += expected
+            estimated_count += 1
+
+        self._estimate_last = {
+            "estimate": total,
+            "item_count": estimated_count,
+            "unresolved_count": len(distributions) - estimated_count,
+            "method": "expected_value",
+        }
         self._estimate_zero_reason = (
             self._zero_estimate_reason(item_rows, distributions, constraints)
-            if estimate.estimate <= 0
+            if total <= 0 or constraints == []
             else ""
         )
-        return estimate.estimate
+        if constraints == []:
+            return 0.0
+        return total
+
+    def _calc_grid_variance_adjusted_estimate_price(self) -> float:
+        item_rows, distributions, constraints = self._grid_value_distributions()
+
+        total_mean = 0.0
+        total_variance = 0.0
+        estimated_count = 0
+        for dist in distributions:
+            stats = self._distribution_mean_variance(dist)
+            if stats is None:
+                continue
+            mean, variance = stats
+            total_mean += mean
+            total_variance += variance
+            estimated_count += 1
+
+        std = math.sqrt(max(0.0, total_variance))
+        penalty = min(total_mean * 0.30, std * 0.25)
+        estimate = max(0.0, total_mean - penalty)
+        self._estimate_last = {
+            "estimate": estimate,
+            "raw_estimate": total_mean,
+            "std": std,
+            "penalty": penalty,
+            "item_count": estimated_count,
+            "unresolved_count": len(distributions) - estimated_count,
+            "method": "variance_adjusted_expected_value",
+        }
+        self._estimate_zero_reason = (
+            self._zero_estimate_reason(item_rows, distributions, constraints)
+            if estimate <= 0 or constraints == []
+            else ""
+        )
+        if constraints == []:
+            return 0.0
+        return estimate
+
+    def _calc_grid_trimmed_mean_estimate_price(self) -> float:
+        item_rows, distributions, constraints = self._grid_value_distributions()
+
+        total = 0.0
+        estimated_count = 0
+        for dist in distributions:
+            expected = self._distribution_upper_trimmed_expected_value(
+                dist,
+                trim_ratio=0.05,
+            )
+            if expected is None:
+                continue
+            total += expected
+            estimated_count += 1
+
+        self._estimate_last = {
+            "estimate": total,
+            "item_count": estimated_count,
+            "unresolved_count": len(distributions) - estimated_count,
+            "method": "upper_trimmed_expected_value",
+            "trim_ratio": 0.05,
+        }
+        self._estimate_zero_reason = (
+            self._zero_estimate_reason(item_rows, distributions, constraints)
+            if total <= 0 or constraints == []
+            else ""
+        )
+        if constraints == []:
+            return 0.0
+        return total
+
+    def _calc_grid_85_percent_estimate_price(self) -> float:
+        item_rows, distributions, constraints = self._grid_value_distributions()
+
+        raw_total = 0.0
+        estimated_count = 0
+        for dist in distributions:
+            expected = self._distribution_expected_value(dist)
+            if expected is None:
+                continue
+            raw_total += expected
+            estimated_count += 1
+
+        total = raw_total * 0.85
+        self._estimate_last = {
+            "estimate": total,
+            "raw_estimate": raw_total,
+            "item_count": estimated_count,
+            "unresolved_count": len(distributions) - estimated_count,
+            "method": "expected_value_85_percent",
+        }
+        self._estimate_zero_reason = (
+            self._zero_estimate_reason(item_rows, distributions, constraints)
+            if total <= 0 or constraints == []
+            else ""
+        )
+        if constraints == []:
+            return 0.0
+        return total
 
     def _calc_grid_total_price(self) -> float:
         return self._calc_grid_total_estimate_price()
